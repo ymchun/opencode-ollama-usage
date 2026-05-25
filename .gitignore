@@ -1,0 +1,5 @@
+.DS_Store
+.omo/
+*.tsbuildinfo
+dist/
+node_modules/
