@@ -1,0 +1,65 @@
+{
+  "[json]": {
+    "editor.codeActionsOnSave": {
+      "source.fixAll.sortJSON": "never"
+    }
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "vscode.markdown-language-features"
+  },
+  "[typescript]": {
+    "editor.codeActionsOnSave": {
+      "source.fixAll.prettier": "never",
+      "source.organizeImports": "never",
+      "source.removeUnusedImports": "explicit"
+    }
+  },
+  "[typescriptreact]": {
+    "editor.codeActionsOnSave": {
+      "source.fixAll.prettier": "never",
+      "source.organizeImports": "never",
+      "source.removeUnusedImports": "explicit"
+    }
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.fixAll.sortJSON": "explicit",
+    "source.fixAll.stylelint": "explicit",
+    "source.fixAll.ts": "explicit"
+  },
+  "editor.formatOnSave": true,
+  "editor.rulers": [
+    120
+  ],
+  "eslint.nodePath": "node_modules",
+  "eslint.runtime": "node",
+  "eslint.workingDirectories": [
+    {
+      "mode": "auto"
+    }
+  ],
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/node_modules/**": true
+  },
+  "js/ts.format.enabled": false,
+  "js/ts.preferences.importModuleSpecifier": "non-relative",
+  "js/ts.suggestionActions.enabled": false,
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": false,
+  "js/ts.tsserver.watchOptions": {
+    "fallbackPolling": "dynamicPriorityPolling",
+    "watchDirectory": "useFsEvents",
+    "watchFile": "useFsEvents"
+  },
+  "prettier.prettierPath": "node_modules/prettier/index.cjs",
+  "search.exclude": {
+    "**/.git/**": true,
+    "**/node_modules/**": true
+  }
+}
