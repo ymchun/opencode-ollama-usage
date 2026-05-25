@@ -1,6 +1,9 @@
 {
   "name": "@ymchun/opencode-ollama-usage",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/ymchun/opencode-ollama-usage"
+  },
   "license": "MIT",
   "type": "module",
   "exports": {
