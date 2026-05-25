@@ -4,9 +4,6 @@
       "source.fixAll.sortJSON": "never"
     }
   },
-  "[markdown]": {
-    "editor.defaultFormatter": "vscode.markdown-language-features"
-  },
   "[typescript]": {
     "editor.codeActionsOnSave": {
       "source.fixAll.prettier": "never",

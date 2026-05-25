@@ -6,15 +6,9 @@ An opencode TUI plugin for Ollama usage information.
 
 ![session](https://raw.githubusercontent.com/ymchun/opencode-ollama-usage/refs/heads/master/assets/screenshot_session.png)
 
-## Install
+## Install & Config
 
-```bash
-opencode plugin add @ymchun/opencode-ollama-usage
-```
-
-## Config
-
-Add the plugin to your `tui.json`:
+Add the plugin to your `tui.json` & start `opencode`:
 
 ```json
 {

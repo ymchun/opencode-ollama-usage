@@ -1,0 +1,17 @@
+{
+  "!(*package).json": [
+    "bun prettier --no-error-on-unmatched-pattern --parser json --write",
+    "bun cspell --no-must-find-files"
+  ],
+  "*.md": ["bun prettier --no-error-on-unmatched-pattern --parser markdown --write", "bun cspell --no-must-find-files"],
+  "*.{ts,tsx}": [
+    "bun eslint --fix --rule \"no-console: ['error', { allow: ['info', 'warn', 'error'] }]\"",
+    "bun prettier --write --no-error-on-unmatched-pattern",
+    "bun cspell --no-must-find-files"
+  ],
+  "*.{yaml,yml}": [
+    "bun prettier --no-error-on-unmatched-pattern --parser yaml --write",
+    "bun cspell --no-must-find-files"
+  ],
+  "package.json": "bun sort-package-json"
+}

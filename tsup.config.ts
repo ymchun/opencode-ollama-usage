@@ -1,3 +1,4 @@
+// CSpell:ignore opentui
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
