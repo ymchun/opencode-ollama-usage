@@ -1,6 +1,22 @@
 {
   "name": "@ymchun/opencode-ollama-usage",
   "version": "1.0.1",
+  "description": "An opencode TUI plugin for Ollama usage information.",
+  "keywords": [
+    "agentic-ai",
+    "agentic-coding",
+    "ai-devtools",
+    "ollama-integration",
+    "ollama",
+    "opencode-plugin",
+    "opencode",
+    "quota-tracking",
+    "usage-monitor"
+  ],
+  "homepage": "https://github.com/ymchun/opencode-ollama-usage",
+  "bugs": {
+    "url": "https://github.com/ymchun/opencode-ollama-usage/issues"
+  },
   "repository": {
     "url": "https://github.com/ymchun/opencode-ollama-usage"
   },

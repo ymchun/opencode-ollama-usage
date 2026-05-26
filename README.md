@@ -1,18 +1,28 @@
 # @ymchun/opencode-ollama-usage
 
+<!-- CSpell:ignore safehouse -->
+
+![npm](https://img.shields.io/npm/v/@ymchun/opencode-ollama-usage.svg)
+![npm](https://img.shields.io/npm/d18m/@ymchun/opencode-ollama-usage.svg)
+
 An opencode TUI plugin for Ollama usage information.
 
 ![home](https://raw.githubusercontent.com/ymchun/opencode-ollama-usage/refs/heads/master/assets/screenshot_home.png)
 
 ![session](https://raw.githubusercontent.com/ymchun/opencode-ollama-usage/refs/heads/master/assets/screenshot_session.png)
 
-## Install & Config
+## Why This Plugin
 
-Add the plugin to your `tui.json` & start `opencode`:
+A quick shortcut to check my quota usage would be fantastic, rather than navigating to the settings page every time.
+
+## Quick Start
+
+Add the plugin to your `~/.config/opencode/tui.json` & start `opencode`:
 
 ```json
 {
-  "plugin": ["@ymchun/opencode-ollama-usage"]
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["@ymchun/opencode-ollama-usage@latest"]
 }
 ```
 
@@ -54,6 +64,39 @@ How often (in milliseconds) the plugin refreshes quota data. Defaults to `300000
 export OLLAMA_QUOTA_REFRESH_INTERVAL=60000  # refresh every minute
 ```
 
+## Troubleshooting
+
+### Error Codes
+
+The plugin shows different status messages in the sidebar depending on the state of your connection and quota data. Here's what each message means:
+
+| Message            | Meaning                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| **Connect Ollama** | No quota data has been fetched yet (initial state).                                              |
+| **No Cookie**      | `OLLAMA_SESSION_COOKIE` is not set.                                                              |
+| **Signed Out**     | The session cookie has expired or is invalid.                                                    |
+| **Missing Data**   | The Ollama settings page loaded, but no quota fields (session, weekly, plan) could be extracted. |
+| **Parse Error**    | The HTML from the Ollama settings page could not be parsed.                                      |
+| **Network Error**  | The fetch to `ollama.com/settings` failed (timeout, DNS failure, or non-OK HTTP response).       |
+| **Unknown Error**  | An unrecognized error occurred.                                                                  |
+
+> **Tip:** You can force an immediate refresh by restarting `opencode` or by setting `OLLAMA_QUOTA_REFRESH_INTERVAL` to a shorter interval (e.g. `60000` for 1 minute) to see if the issue resolves on the next cycle.
+
+### Using with [agent-safehouse](https://github.com/eugene1g/agent-safehouse)
+
+Prepare an env file, place it somewhere (`/path/to/agent-safehouse.env`)
+
+```.env
+OLLAMA_QUOTA_REFRESH_INTERVAL=6000
+OLLAMA_SESSION_COOKIE='...'
+```
+
+Start the agent-safehouse as follows
+
+```bash
+$ safehouse --env=/path/to/agent-safehouse.env -- opencode --opencode-options
+```
+
 ## Development
 
 ```bash
@@ -61,42 +104,6 @@ bun install
 bun run build
 bun test
 ```
-
-## Publishing
-
-This package is published to npm automatically via GitHub Actions when a version tag is pushed.
-
-### Setup
-
-1. **Add `NPM_TOKEN` secret** to your GitHub repository:
-   - Go to **Settings** → **Secrets and variables** → **Actions**
-   - Click **New repository secret**
-   - Name: `NPM_TOKEN`
-   - Value: Your npm access token (create one at [npmjs.com](https://www.npmjs.com/settings/tokens) with **Automation** type)
-   - Click **Add secret**
-
-### Release a new version
-
-```bash
-# 1. Update the version in package.json
-# 2. Commit and push
-git add .
-git commit -m "chore: release v0.x.x"
-git push origin master
-
-# 3. Create and push a tag matching the version
-git tag v0.x.x
-git push origin v0.x.x
-```
-
-Pushing the tag triggers the **Publish** workflow which:
-
-1. Verifies the tag matches `package.json` version
-2. Runs all checks (typecheck, lint, format, build, test)
-3. Publishes to npm with provenance
-4. Creates a GitHub Release with auto-generated release notes
-
-> **Note:** The tag must match the version in `package.json` (e.g., tag `v0.2.0` requires `"version": "0.2.0"`). The workflow will fail if they don't match.
 
 ## License
 
