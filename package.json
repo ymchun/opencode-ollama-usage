@@ -1,6 +1,6 @@
 {
   "name": "@ymchun/opencode-ollama-usage",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "An opencode TUI plugin for Ollama usage information.",
   "keywords": [
     "agentic-ai",
