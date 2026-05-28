@@ -73,7 +73,9 @@ export default defineConfig([
       parserOptions: {
         ecmaFeatures: { jsx: true },
         ecmaVersion: 'latest',
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ['src/__tests__/index.test.ts'],
+        },
         sourceType: 'module',
       },
     },
