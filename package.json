@@ -50,18 +50,24 @@
     "@typescript-eslint/parser": "^8.0.0",
     "esbuild-plugin-solid": "^0.6.0",
     "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-perfectionist": "^5.9.0",
+    "eslint-plugin-prettier": "^5.5.6",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
     "sort-package-json": "^3.6.1",
     "tsup": "^8.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.60.0"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.0.0",
     "@opentui/core": ">=0.2.15",
     "@opentui/solid": ">=0.2.15",
-    "solid-js": "1.9.12"
+    "solid-js": "^1.9.13"
   },
   "engines": {
     "opencode": ">=1.0.0"
