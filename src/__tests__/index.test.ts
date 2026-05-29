@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 
-import type { ModelSegment, ParsedQuota, ResetTime } from '../index.tsx'
+import type { DisplayState, ModelSegment, ParsedQuota, QuotaResult, ResetTime } from '../index.tsx'
 
 // Cspell:ignore jsxs
 
@@ -14,12 +14,14 @@ void mock.module('@opentui/solid/jsx-runtime', () => ({
 
 let extractModelSegments: (html: string, sectionLabel: string) => ModelSegment[]
 let extractResetTimes: (html: string) => ResetTime
+let formatDisplayState: (quota?: QuotaResult) => DisplayState
 let parseQuotaHtml: (html: string) => ParsedQuota
 
 beforeAll(async () => {
   const mod = await import('../index.tsx')
   extractModelSegments = mod.extractModelSegments
   extractResetTimes = mod.extractResetTimes
+  formatDisplayState = mod.formatDisplayState
   parseQuotaHtml = mod.parseQuotaHtml
 })
 
@@ -89,6 +91,72 @@ const WEEKLY_HTML = `
   </div>
 `
 
+const NO_USAGE_HTML = `
+  <div>
+    <div class="flex justify-between mb-2">
+      <span class="text-sm ">Session usage</span>
+      <span class="text-sm ">
+        0% used
+      </span>
+    </div>
+    <div class="relative group" data-usage-meter="">
+      <div class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100" data-usage-bubble="" aria-hidden="true">
+        <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]" data-usage-model=""></span>
+        <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests=""></span>
+      </div>
+      <div class="relative h-3 overflow-hidden rounded-full bg-neutral-200" data-usage-track="" aria-label="Session usage 0% used">
+        <div class="flex h-full overflow-hidden bg-neutral-950" style="width: 0%; ">
+        </div>
+      </div>
+    </div>
+    <div class="text-xs text-neutral-500 mt-1 local-time" data-time="2026-05-29T17:00:00Z" title="Sat, May 30, 1:00 AM">
+      Resets in 4 hours
+    </div>
+
+  </div>
+`
+
+const NO_SESSION_WITH_WEEKLY_HTML = `
+  <div>
+    <div class="flex justify-between mb-2">
+      <span class="text-sm ">Session usage</span>
+      <span class="text-sm ">
+        0% used
+      </span>
+    </div>
+    <div class="relative group" data-usage-meter="">
+      <div class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100" data-usage-bubble="" aria-hidden="true">
+        <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]" data-usage-model=""></span>
+        <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests=""></span>
+      </div>
+      <div class="relative h-3 overflow-hidden rounded-full bg-neutral-200" data-usage-track="" aria-label="Session usage 0% used">
+        <div class="flex h-full overflow-hidden bg-neutral-950" style="width: 0%; ">
+        </div>
+      </div>
+    </div>
+    <div class="text-xs text-neutral-500 mt-1 local-time" data-time="2026-05-29T17:00:00Z" title="Sat, May 30, 1:00 AM">
+      Resets in 4 hours
+    </div>
+  </div>
+  <div>
+    <div class="flex justify-between mb-2">
+      <span class="text-sm">Weekly usage</span>
+      <span class="text-sm ">10.2% used</span>
+    </div>
+    <div class="relative group" data-usage-meter="">
+      <div class="relative h-3 overflow-hidden rounded-full bg-neutral-200" data-usage-track="" aria-label="Weekly usage 10.2% used">
+        <div class="flex h-full overflow-hidden bg-neutral-950" style="width: 10.2%">
+          <button type="button" class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none" style="width: 66%; background: #8e8e93" data-usage-segment="" data-model="glm-5.1" data-requests="284" aria-label="glm-5.1: 284 requests"></button>
+          <button type="button" class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none" style="width: 32.3%; background: #007aff" data-usage-segment="" data-model="minimax-m2.7" data-requests="519" aria-label="minimax-m2.7: 519 requests"></button>
+        </div>
+      </div>
+    </div>
+    <div class="text-xs text-neutral-500 mt-1 local-time" data-time="2026-06-01T00:00:00Z" title="Mon, Jun 1, 8:00 AM">
+      Resets in 3 days
+    </div>
+  </div>
+`
+
 describe('extractModelSegments', () => {
   test('extracts single model from session section', () => {
     const segments = extractModelSegments(SESSION_HTML, 'Session usage')
@@ -99,15 +167,19 @@ describe('extractModelSegments', () => {
     expect(segments[0].color).toBe('#007aff')
   })
 
-  test('extracts multiple models from weekly section', () => {
+  test('extracts multiple models from weekly section sorted by request count descending', () => {
     const segments = extractModelSegments(WEEKLY_HTML, 'Weekly usage')
     expect(segments.length).toBe(4)
-    expect(segments[0].model).toBe('glm-5.1')
-    expect(segments[0].requests).toBe(284)
-    expect(segments[0].widthPercent).toBe(66)
-    expect(segments[1].model).toBe('minimax-m2.7')
-    expect(segments[1].requests).toBe(519)
-    expect(segments[1].widthPercent).toBeCloseTo(32.3)
+    expect(segments[0].model).toBe('minimax-m2.7')
+    expect(segments[0].requests).toBe(519)
+    expect(segments[0].widthPercent).toBeCloseTo(32.3)
+    expect(segments[1].model).toBe('glm-5.1')
+    expect(segments[1].requests).toBe(284)
+    expect(segments[1].widthPercent).toBe(66)
+    expect(segments[2].model).toBe('rnj-1:8b')
+    expect(segments[2].requests).toBe(11)
+    expect(segments[3].model).toBe('gemini-3-flash-preview')
+    expect(segments[3].requests).toBe(10)
   })
 
   test('returns empty array when section label not found', () => {
@@ -128,6 +200,22 @@ describe('extractModelSegments', () => {
     const weeklySegments = extractModelSegments(combined, 'Weekly usage')
     expect(sessionSegments.length).toBe(1)
     expect(weeklySegments.length).toBe(4)
+  })
+
+  test('returns empty array for 0% usage with no model segments', () => {
+    const segments = extractModelSegments(NO_USAGE_HTML, 'Session usage')
+    expect(segments.length).toBe(0)
+  })
+
+  test('extracts weekly models from mixed HTML with 0% session and weekly data sorted by requests', () => {
+    const sessionSegments = extractModelSegments(NO_SESSION_WITH_WEEKLY_HTML, 'Session usage')
+    const weeklySegments = extractModelSegments(NO_SESSION_WITH_WEEKLY_HTML, 'Weekly usage')
+    expect(sessionSegments.length).toBe(0)
+    expect(weeklySegments.length).toBe(2)
+    expect(weeklySegments[0].model).toBe('minimax-m2.7')
+    expect(weeklySegments[0].requests).toBe(519)
+    expect(weeklySegments[1].model).toBe('glm-5.1')
+    expect(weeklySegments[1].requests).toBe(284)
   })
 
   test('supports Hourly usage as session label fallback', () => {
@@ -230,6 +318,22 @@ describe('extractResetTimes', () => {
     expect(result.weeklyLabel).toBe('3 days')
   })
 
+  test('extracts session reset time from 0% usage HTML', () => {
+    const result = extractResetTimes(NO_USAGE_HTML)
+    expect(result.session).toBe('2026-05-29T17:00:00Z')
+    expect(result.sessionLabel).toBe('4 hours')
+    expect(result.weekly).toBeNull()
+    expect(result.weeklyLabel).toBeNull()
+  })
+
+  test('extracts both reset times from mixed 0% session and weekly usage', () => {
+    const result = extractResetTimes(NO_SESSION_WITH_WEEKLY_HTML)
+    expect(result.session).toBe('2026-05-29T17:00:00Z')
+    expect(result.sessionLabel).toBe('4 hours')
+    expect(result.weekly).toBe('2026-06-01T00:00:00Z')
+    expect(result.weeklyLabel).toBe('3 days')
+  })
+
   test('handles Hourly usage as session fallback', () => {
     const html = `
       <div>Hourly usage
@@ -297,11 +401,41 @@ describe('parseQuotaHtml integration', () => {
     expect(result.models.session[0].requests).toBe(1)
 
     expect(result.models.weekly.length).toBe(2)
-    expect(result.models.weekly[0].model).toBe('glm-5.1')
-    expect(result.models.weekly[0].requests).toBe(284)
+    expect(result.models.weekly[0].model).toBe('minimax-m2.7')
+    expect(result.models.weekly[0].requests).toBe(519)
+    expect(result.models.weekly[1].model).toBe('glm-5.1')
+    expect(result.models.weekly[1].requests).toBe(284)
 
     expect(result.resetTime.session).toBe('2026-05-28T21:00:00Z')
     expect(result.resetTime.sessionLabel).toBe('3 hours')
+    expect(result.resetTime.weekly).toBe('2026-06-01T00:00:00Z')
+    expect(result.resetTime.weeklyLabel).toBe('3 days')
+  })
+
+  test('parses 0% session usage with no model segments and valid reset time', () => {
+    const result = parseQuotaHtml(NO_USAGE_HTML)
+    expect(result.session).toBe(0)
+    expect(result.weekly).toBeNull()
+    expect(result.models.session.length).toBe(0)
+    expect(result.models.weekly.length).toBe(0)
+    expect(result.plan).toBeNull()
+    expect(result.premiumRequests).toBeNull()
+    expect(result.resetTime.session).toBe('2026-05-29T17:00:00Z')
+    expect(result.resetTime.sessionLabel).toBe('4 hours')
+    expect(result.resetTime.weekly).toBeNull()
+    expect(result.resetTime.weeklyLabel).toBeNull()
+  })
+
+  test('parses 0% session with weekly models and both reset times', () => {
+    const result = parseQuotaHtml(NO_SESSION_WITH_WEEKLY_HTML)
+    expect(result.session).toBe(0)
+    expect(result.weekly).toBeCloseTo(10.2)
+    expect(result.models.session.length).toBe(0)
+    expect(result.models.weekly.length).toBe(2)
+    expect(result.models.weekly[0].model).toBe('minimax-m2.7')
+    expect(result.models.weekly[1].model).toBe('glm-5.1')
+    expect(result.resetTime.session).toBe('2026-05-29T17:00:00Z')
+    expect(result.resetTime.sessionLabel).toBe('4 hours')
     expect(result.resetTime.weekly).toBe('2026-06-01T00:00:00Z')
     expect(result.resetTime.weeklyLabel).toBe('3 days')
   })
@@ -327,5 +461,66 @@ describe('parseQuotaHtml integration', () => {
     expect(result.weekly).toBe(15)
     expect(result.models.session.length).toBe(0)
     expect(result.models.weekly.length).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatDisplayState
+// ---------------------------------------------------------------------------
+
+describe('formatDisplayState', () => {
+  const baseQuota: QuotaResult = {
+    fetchedAt: Date.now(),
+    models: { session: [], weekly: [] },
+    ok: true,
+    plan: null,
+    premiumRequests: null,
+    resetTime: { session: null, sessionLabel: null, weekly: null, weeklyLabel: null },
+    session: null,
+    weekly: null,
+  }
+
+  test('returns Connect Ollama when quota is undefined', () => {
+    const result = formatDisplayState(undefined)
+    expect(result.level).toBe('muted')
+    expect(result.text).toBe('Connect Ollama')
+  })
+
+  test('returns 0% session when session usage is 0', () => {
+    const result = formatDisplayState({ ...baseQuota, session: 0 })
+    expect(result.level).toBe('default')
+    expect(result.text).toBe('0% session')
+  })
+
+  test('returns 0% session · 0% weekly when both are 0', () => {
+    const result = formatDisplayState({ ...baseQuota, session: 0, weekly: 0 })
+    expect(result.level).toBe('default')
+    expect(result.text).toBe('0% session · 0% weekly')
+  })
+
+  test('returns weekly-only text when session is null and weekly has data', () => {
+    const result = formatDisplayState({ ...baseQuota, weekly: 10.2 })
+    expect(result.level).toBe('default')
+    expect(result.text).toBe('10.2% weekly')
+  })
+
+  test('returns 0% session with weekly when session is 0 and weekly has data', () => {
+    const result = formatDisplayState({ ...baseQuota, session: 0, weekly: 10.2 })
+    expect(result.level).toBe('default')
+    expect(result.text).toBe('0% session · 10.2% weekly')
+  })
+
+  test('returns error text for NoCookie error', async () => {
+    const { QuotaError } = await import('../index.tsx')
+    const noCookieQuota: QuotaResult = { error: QuotaError.NoCookie, fetchedAt: Date.now(), ok: false }
+    const result = formatDisplayState(noCookieQuota)
+    expect(result.level).toBe('muted')
+    expect(result.text).toBe('No Cookie')
+  })
+
+  test('returns default level for normal usage', () => {
+    const result = formatDisplayState({ ...baseQuota, session: 45.5, weekly: 12.3 })
+    expect(result.level).toBe('default')
+    expect(result.text).toBe('45.5% session · 12.3% weekly')
   })
 })

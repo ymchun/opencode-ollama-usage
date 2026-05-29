@@ -127,7 +127,7 @@ function extractModelSegments(html: string, sectionLabel: string): ModelSegment[
       segments.push({ color, model, requests, widthPercent })
     }
   }
-  return segments
+  return segments.sort((a, b) => b.requests - a.requests)
 }
 
 // ---------------------------------------------------------------------------
@@ -442,19 +442,22 @@ const tui: (devMode?: boolean) => TuiPlugin =
             )
           }
 
-          const hasModels = q.models.session.length > 0 || q.models.weekly.length > 0
+          const hasSessionData = q.session !== null
+          const hasWeeklyData = q.weekly !== null
+          const hasSessionModels = q.models.session.length > 0
+          const hasWeeklyModels = q.models.weekly.length > 0
 
           return (
             <box>
               <text fg={theme.current.text}>
                 <b>{printPluginHeader()}</b>
               </text>
-              {q.session !== null && <text fg={theme.current.textMuted}>• {q.session}% Session</text>}
-              {q.weekly !== null && <text fg={theme.current.textMuted}>• {q.weekly}% Weekly</text>}
+              {hasSessionData && <text fg={theme.current.textMuted}>• {q.session}% Session</text>}
+              {hasWeeklyData && <text fg={theme.current.textMuted}>• {q.weekly}% Weekly</text>}
 
-              {hasModels && (
+              {hasSessionData && (
                 <box>
-                  {q.models.session.length > 0 && (
+                  {hasSessionModels ? (
                     <box>
                       <text fg={theme.current.textMuted} marginTop={1}>
                         ─── Session ───
@@ -471,9 +474,15 @@ const tui: (devMode?: boolean) => TuiPlugin =
                         <text fg={theme.current.textMuted}>Resets in {q.resetTime.sessionLabel}</text>
                       )}
                     </box>
-                  )}
+                  ) : q.resetTime.sessionLabel ? (
+                    <text fg={theme.current.textMuted}>Resets in {q.resetTime.sessionLabel}</text>
+                  ) : null}
+                </box>
+              )}
 
-                  {q.models.weekly.length > 0 && (
+              {hasWeeklyData && (
+                <box>
+                  {hasWeeklyModels ? (
                     <box>
                       <text fg={theme.current.textMuted} marginTop={1}>
                         ─── Weekly ───
@@ -490,7 +499,9 @@ const tui: (devMode?: boolean) => TuiPlugin =
                         <text fg={theme.current.textMuted}>Resets in {q.resetTime.weeklyLabel}</text>
                       )}
                     </box>
-                  )}
+                  ) : q.resetTime.weeklyLabel ? (
+                    <text fg={theme.current.textMuted}>Resets in {q.resetTime.weeklyLabel}</text>
+                  ) : null}
                 </box>
               )}
             </box>
@@ -507,5 +518,6 @@ const plugin: TuiPluginModule & { id: string } = {
 
 export default plugin
 
-export { extractModelSegments, extractResetTimes, parseQuotaHtml, tui }
-export type { ModelBreakdown, ModelSegment, ParsedQuota, QuotaData, QuotaResult, ResetTime }
+export { extractModelSegments, extractResetTimes, formatDisplayState, parseQuotaHtml, tui }
+export { QuotaError }
+export type { DisplayLevel, DisplayState, ModelBreakdown, ModelSegment, ParsedQuota, QuotaData, QuotaResult, ResetTime }
