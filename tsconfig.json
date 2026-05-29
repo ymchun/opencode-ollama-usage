@@ -14,15 +14,7 @@
     "sourceMap": true,
     "strict": true,
     "target": "ESNext",
-    "types": [
-      "bun",
-      "node"
-    ]
+    "types": ["bun", "node"]
   },
-  "exclude": [
-    "src/__tests__"
-  ],
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }

@@ -1,6 +1,13 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 
-import type { DisplayState, ModelSegment, ParsedQuota, QuotaResult, ResetTime } from '../index.tsx'
+import type {
+  extractModelSegments as extractModelSegmentsFunction,
+  extractResetTimes as extractResetTimesFunction,
+  formatDisplayState as formatDisplayStateFunction,
+  parseQuotaHtml as parseQuotaHtmlFunction,
+  QuotaError,
+  QuotaResult,
+} from '../index'
 
 // Cspell:ignore jsxs
 
@@ -12,32 +19,34 @@ void mock.module('@opentui/solid/jsx-runtime', () => ({
   jsxs: () => null,
 }))
 
-let extractModelSegments: (html: string, sectionLabel: string) => ModelSegment[]
-let extractResetTimes: (html: string) => ResetTime
-let formatDisplayState: (quota?: QuotaResult) => DisplayState
-let parseQuotaHtml: (html: string) => ParsedQuota
+let extractModelSegments: typeof extractModelSegmentsFunction
+let extractResetTimes: typeof extractResetTimesFunction
+let formatDisplayState: typeof formatDisplayStateFunction
+let parseQuotaHtml: typeof parseQuotaHtmlFunction
+let quotaError: typeof QuotaError
 
 beforeAll(async () => {
-  const mod = await import('../index.tsx')
+  const mod = await import('../index')
   extractModelSegments = mod.extractModelSegments
   extractResetTimes = mod.extractResetTimes
   formatDisplayState = mod.formatDisplayState
   parseQuotaHtml = mod.parseQuotaHtml
+  quotaError = mod.QuotaError
 })
 
 test('exports default with tui property', async () => {
-  const mod = await import('../index.tsx')
+  const mod = await import('../index')
   expect(mod.default).toBeDefined()
   expect(typeof mod.default.tui).toBe('function')
 })
 
 test('exports default with id property', async () => {
-  const mod = await import('../index.tsx')
+  const mod = await import('../index')
   expect(mod.default.id).toBe('ollama.usage')
 })
 
 test('id is a non-empty string', async () => {
-  const mod = await import('../index.tsx')
+  const mod = await import('../index')
   expect(typeof mod.default.id).toBe('string')
   expect(mod.default.id.length).toBeGreaterThan(0)
 })
@@ -511,8 +520,7 @@ describe('formatDisplayState', () => {
   })
 
   test('returns error text for NoCookie error', async () => {
-    const { QuotaError } = await import('../index.tsx')
-    const noCookieQuota: QuotaResult = { error: QuotaError.NoCookie, fetchedAt: Date.now(), ok: false }
+    const noCookieQuota: QuotaResult = { error: quotaError.NoCookie, fetchedAt: Date.now(), ok: false }
     const result = formatDisplayState(noCookieQuota)
     expect(result.level).toBe('muted')
     expect(result.text).toBe('No Cookie')

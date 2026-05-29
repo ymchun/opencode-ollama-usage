@@ -73,9 +73,7 @@ export default defineConfig([
       parserOptions: {
         ecmaFeatures: { jsx: true },
         ecmaVersion: 'latest',
-        projectService: {
-          allowDefaultProject: ['src/__tests__/index.test.ts'],
-        },
+        projectService: true,
         sourceType: 'module',
       },
     },
@@ -161,7 +159,7 @@ export default defineConfig([
     rules: {
       ...pluginImportConfig.flatConfigs.recommended.rules,
       'import/no-duplicates': 'error',
-      'import/no-unresolved': 'error',
+      'import/no-unresolved': ['error', { ignore: ['^bun:'] }],
       'import/order': 'off',
     },
     settings: {
