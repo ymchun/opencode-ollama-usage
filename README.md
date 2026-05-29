@@ -7,9 +7,9 @@
 
 An opencode TUI plugin for Ollama usage information.
 
-![home](https://raw.githubusercontent.com/ymchun/opencode-ollama-usage/refs/heads/master/assets/screenshot_home.png)
+![home](https://github.com/ymchun/opencode-ollama-usage/blob/5d148b46e0fedd2721d9205749bf80db8afb09f0/assets/screenshot_home-1.png)
 
-![session](https://raw.githubusercontent.com/ymchun/opencode-ollama-usage/refs/heads/master/assets/screenshot_session.png)
+![session](https://github.com/ymchun/opencode-ollama-usage/blob/5d148b46e0fedd2721d9205749bf80db8afb09f0/assets/screenshot_session-1.png)
 
 ## Why This Plugin
 
