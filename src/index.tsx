@@ -457,11 +457,11 @@ const tui: (devMode?: boolean) => TuiPlugin =
 
               {hasSessionData && (
                 <box>
+                  <text fg={theme.current.textMuted} marginTop={1}>
+                    ─── Session ───
+                  </text>
                   {hasSessionModels ? (
                     <box>
-                      <text fg={theme.current.textMuted} marginTop={1}>
-                        ─── Session ───
-                      </text>
                       {q.models.session.slice(0, MAX_MODELS_DISPLAY).map(seg => (
                         <text fg={theme.current.text}>
                           {seg.model}: {seg.requests} ({seg.widthPercent}%)
@@ -482,11 +482,11 @@ const tui: (devMode?: boolean) => TuiPlugin =
 
               {hasWeeklyData && (
                 <box>
+                  <text fg={theme.current.textMuted} marginTop={1}>
+                    ─── Weekly ───
+                  </text>
                   {hasWeeklyModels ? (
                     <box>
-                      <text fg={theme.current.textMuted} marginTop={1}>
-                        ─── Weekly ───
-                      </text>
                       {q.models.weekly.slice(0, MAX_MODELS_DISPLAY).map(seg => (
                         <text fg={theme.current.text}>
                           {seg.model}: {seg.requests} ({seg.widthPercent}%)
