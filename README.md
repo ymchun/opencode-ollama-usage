@@ -88,7 +88,7 @@ Prepare an env file, place it somewhere (`/path/to/agent-safehouse.env`)
 
 ```.env
 OLLAMA_QUOTA_REFRESH_INTERVAL=6000
-OLLAMA_SESSION_COOKIE='...'
+OLLAMA_SESSION_COOKIE='__Secure-session=...'
 ```
 
 Start the agent-safehouse as follows
