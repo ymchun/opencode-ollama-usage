@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 
 import type {
   extractModelSegments as extractModelSegmentsFunction,
+  extractPercentageFromAriaLabel as extractPercentageFromAriaLabelFunction,
   extractResetTimes as extractResetTimesFunction,
   formatDisplayState as formatDisplayStateFunction,
   parseQuotaHtml as parseQuotaHtmlFunction,
@@ -9,7 +10,7 @@ import type {
   QuotaResult,
 } from '../index'
 
-// Cspell:ignore jsxs
+// Cspell:ignore jsxs qwen
 
 // Mock @opentui/solid to avoid JSX parsing errors
 void mock.module('@opentui/solid/jsx-runtime', () => ({
@@ -20,6 +21,7 @@ void mock.module('@opentui/solid/jsx-runtime', () => ({
 }))
 
 let extractModelSegments: typeof extractModelSegmentsFunction
+let extractPercentageFromAriaLabel: typeof extractPercentageFromAriaLabelFunction
 let extractResetTimes: typeof extractResetTimesFunction
 let formatDisplayState: typeof formatDisplayStateFunction
 let parseQuotaHtml: typeof parseQuotaHtmlFunction
@@ -28,6 +30,7 @@ let quotaError: typeof QuotaError
 beforeAll(async () => {
   const mod = await import('../index')
   extractModelSegments = mod.extractModelSegments
+  extractPercentageFromAriaLabel = mod.extractPercentageFromAriaLabel
   extractResetTimes = mod.extractResetTimes
   formatDisplayState = mod.formatDisplayState
   parseQuotaHtml = mod.parseQuotaHtml
@@ -487,6 +490,7 @@ describe('formatDisplayState', () => {
     resetTime: { session: null, sessionLabel: null, weekly: null, weeklyLabel: null },
     session: null,
     weekly: null,
+    weeklyLimitReached: false,
   }
 
   test('returns Connect Ollama when quota is undefined', () => {
@@ -530,5 +534,228 @@ describe('formatDisplayState', () => {
     const result = formatDisplayState({ ...baseQuota, session: 45.5, weekly: 12.3 })
     expect(result.level).toBe('default')
     expect(result.text).toBe('45.5% session · 12.3% weekly')
+  })
+
+  test('returns warning level and limit reached text when weeklyLimitReached is true', () => {
+    const result = formatDisplayState({ ...baseQuota, session: 29.8, weekly: 100, weeklyLimitReached: true })
+    expect(result.level).toBe('warning')
+    expect(result.text).toBe('Limit reached · 100% weekly')
+  })
+
+  test('returns warning level with limit reached when only weekly is present', () => {
+    const result = formatDisplayState({ ...baseQuota, weekly: 100, weeklyLimitReached: true })
+    expect(result.level).toBe('warning')
+    expect(result.text).toBe('Limit reached · 100% weekly')
+  })
+
+  test('returns warning level with limit reached when session is null', () => {
+    const result = formatDisplayState({ ...baseQuota, session: null, weekly: 100, weeklyLimitReached: true })
+    expect(result.level).toBe('warning')
+    expect(result.text).toBe('Limit reached · 100% weekly')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Weekly limit reached HTML fixture
+// ---------------------------------------------------------------------------
+
+const WEEKLY_LIMIT_REACHED_HTML = `
+<div>
+  <div class="flex justify-between mb-2">
+    <span class="text-sm text-neutral-400">Session usage</span>
+    <span class="text-sm text-neutral-500">
+      Weekly limit reached
+    </span>
+  </div>
+  <div class="relative group" data-usage-meter>
+    <div
+      class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100"
+      data-usage-bubble aria-hidden="true">
+      <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]"
+        data-usage-model></span>
+      <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests></span>
+    </div>
+    <div class="relative h-3 overflow-hidden rounded-full bg-neutral-200" data-usage-track
+      aria-label="Session usage 29.8% used">
+      <div class="flex h-full overflow-hidden bg-neutral-950" style="width: 100%; background: #d4d4d4;">
+
+      </div>
+    </div>
+  </div>
+
+  <div class="text-xs text-neutral-500 mt-1 local-time" data-time="2026-06-08T00:00:00Z">
+    Sessions resume in 1 day.
+  </div>
+
+</div>
+
+<div>
+  <div class="flex justify-between mb-2">
+    <span class="text-sm">Weekly usage</span>
+    <span class="text-sm text-red-500">100% used</span>
+  </div>
+  <div class="relative group" data-usage-meter>
+    <div
+      class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100"
+      data-usage-bubble aria-hidden="true">
+      <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]"
+        data-usage-model></span>
+      <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests></span>
+    </div>
+    <div class="relative h-3 overflow-hidden rounded-full bg-neutral-200" data-usage-track
+      aria-label="Weekly usage 100% used">
+      <div class="flex h-full overflow-hidden bg-neutral-950" style="width: 100%">
+
+
+        <button type="button"
+          class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+          style="width: 2.6%; background: #f97316" data-usage-segment data-model="qwen3.5:397b" data-requests="53"
+          aria-label="qwen3.5:397b: 53 requests"></button>
+
+        <button type="button"
+          class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+          style="width: 0.7%; background: #22c55e" data-usage-segment data-model="gemini-3-flash-preview"
+          data-requests="53" aria-label="gemini-3-flash-preview: 53 requests"></button>
+
+        <button type="button"
+          class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+          style="width: 0%; background: #22c55e" data-usage-segment data-model="gemma4:31b" data-requests="4"
+          aria-label="gemma4:31b: 4 requests"></button>
+
+        <button type="button"
+          class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+          style="width: 86.4%; background: #3b82f6" data-usage-segment data-model="glm-5.1" data-requests="3222"
+          aria-label="glm-5.1: 3222 requests"></button>
+
+        <button type="button"
+          class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+          style="width: 10.4%; background: #ef4461" data-usage-segment data-model="minimax-m2.7" data-requests="2123"
+          aria-label="minimax-m2.7: 2123 requests"></button>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="text-xs text-neutral-500 mt-1 local-time" data-time="2026-06-08T00:00:00Z">
+    Resets in 1 day.
+  </div>
+</div>
+`
+
+// ---------------------------------------------------------------------------
+// extractPercentageFromAriaLabel
+// ---------------------------------------------------------------------------
+
+describe('extractPercentageFromAriaLabel', () => {
+  test('extracts percentage from aria-label matching label', () => {
+    const html = '<div aria-label="Session usage 29.8% used"></div>'
+    const result = extractPercentageFromAriaLabel(html, 'Session usage')
+    expect(result).toBeCloseTo(29.8)
+  })
+
+  test('extracts percentage from aria-label for Hourly usage', () => {
+    const html = '<div aria-label="Hourly usage 50% used"></div>'
+    const result = extractPercentageFromAriaLabel(html, 'Hourly usage')
+    expect(result).toBe(50)
+  })
+
+  test('returns null when no aria-label matches the label', () => {
+    const html = '<div aria-label="Weekly usage 100% used"></div>'
+    const result = extractPercentageFromAriaLabel(html, 'Session usage')
+    expect(result).toBeNull()
+  })
+
+  test('returns null when aria-label exists but has no percentage', () => {
+    const html = '<div aria-label="Session usage"></div>'
+    const result = extractPercentageFromAriaLabel(html, 'Session usage')
+    expect(result).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractResetTimes with "Sessions resume in"
+// ---------------------------------------------------------------------------
+
+describe('extractResetTimes with resume pattern', () => {
+  test('extracts "Sessions resume in" label for session reset', () => {
+    const html = `
+      <div>Session usage
+        <div class="local-time" data-time="2026-06-08T00:00:00Z">
+          Sessions resume in 1 day.
+        </div>
+      </div>
+    `
+    const result = extractResetTimes(html)
+    expect(result.session).toBe('2026-06-08T00:00:00Z')
+    expect(result.sessionLabel).toBe('1 day.')
+  })
+
+  test('extracts both "Sessions resume in" for session and "Resets in" for weekly', () => {
+    const result = extractResetTimes(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.session).toBe('2026-06-08T00:00:00Z')
+    expect(result.sessionLabel).toBe('1 day.')
+    expect(result.weekly).toBe('2026-06-08T00:00:00Z')
+    expect(result.weeklyLabel).toBe('1 day.')
+  })
+
+  test('preserves "Resets in" extraction for backward compatibility', () => {
+    const result = extractResetTimes(FULL_RESET_HTML)
+    expect(result.session).toBe('2026-05-28T21:00:00Z')
+    expect(result.sessionLabel).toBe('3 hours')
+    expect(result.weekly).toBe('2026-06-01T00:00:00Z')
+    expect(result.weeklyLabel).toBe('3 days')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseQuotaHtml with weekly limit reached
+// ---------------------------------------------------------------------------
+
+describe('parseQuotaHtml with weekly limit reached', () => {
+  test('detects weeklyLimitReached flag', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.weeklyLimitReached).toBe(true)
+  })
+
+  test('extracts session percentage from aria-label when text says "Weekly limit reached"', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.session).toBeCloseTo(29.8)
+  })
+
+  test('extracts weekly percentage as 100', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.weekly).toBe(100)
+  })
+
+  test('extracts session models as empty (no model segments in limit-reached bar)', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.models.session.length).toBe(0)
+  })
+
+  test('extracts weekly models correctly', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.models.weekly.length).toBe(5)
+  })
+
+  test('extracts session reset time with "Sessions resume in" label', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.resetTime.session).toBe('2026-06-08T00:00:00Z')
+    expect(result.resetTime.sessionLabel).toBe('1 day.')
+  })
+
+  test('extracts weekly reset time', () => {
+    const result = parseQuotaHtml(WEEKLY_LIMIT_REACHED_HTML)
+    expect(result.resetTime.weekly).toBe('2026-06-08T00:00:00Z')
+    expect(result.resetTime.weeklyLabel).toBe('1 day.')
+  })
+
+  test('backward compat: normal HTML has weeklyLimitReached false', () => {
+    const result = parseQuotaHtml(FULL_RESET_HTML)
+    expect(result.weeklyLimitReached).toBe(false)
+  })
+
+  test('backward compat: 0% session HTML has weeklyLimitReached false', () => {
+    const result = parseQuotaHtml(NO_USAGE_HTML)
+    expect(result.weeklyLimitReached).toBe(false)
   })
 })

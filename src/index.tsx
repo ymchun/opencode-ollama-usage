@@ -33,9 +33,12 @@ const MAX_MODELS_DISPLAY = 5
 const SIGNED_OUT_MARKERS = ['<form>', '/api/auth/signin', 'type="password"']
 
 const PERCENTAGE_PATTERN = /([0-9]+(?:\.[0-9]+)?)\s*%\s*used/i
+const ARIA_PERCENTAGE_PATTERN = /aria-label="[^"]*?([0-9]+(?:\.[0-9]+)?)\s*%\s*used[^"]*"/i
 const SEGMENT_BUTTON_PATTERN = /<button[^>]+data-usage-segment[^>]*>/g
 const RESET_TIME_PATTERN = /data-time="([^"]*)"/g
 const RESETS_IN_PATTERN = /Resets in\s+([^<]*)/gi
+const RESUMES_IN_PATTERN = /Sessions? resume in\s+([^<]*)/gi
+const WEEKLY_LIMIT_REACHED_PATTERN = /Weekly limit reached/i
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,6 +78,7 @@ type ParsedQuota = {
   resetTime: ResetTime
   session: null | number
   weekly: null | number
+  weeklyLimitReached: boolean
 }
 
 type QuotaData = {
@@ -85,6 +89,7 @@ type QuotaData = {
   resetTime: ResetTime
   session: null | number
   weekly: null | number
+  weeklyLimitReached: boolean
 }
 
 /** Discriminated result: either successful data or an error. */
@@ -137,13 +142,44 @@ function extractModelSegments(html: string, sectionLabel: string): ModelSegment[
 /**
  * Extracts a percentage value found near the given label in the HTML.
  * Returns `null` when the label or percentage is not found.
+ * Falls back to aria-label percentage when the text label doesn't contain "X% used".
  */
 function extractPercentage(html: string, label: string): null | number {
   const idx = html.toLowerCase().indexOf(label.toLowerCase())
   if (idx === -1) return null
   const slice = html.slice(idx, idx + PERCENTAGE_SLICE_LENGTH)
+
+  // Try the standard "X% used" pattern first (e.g. "29.8% used")
   const m = slice.match(PERCENTAGE_PATTERN)
-  return m ? parseFloat(m[1]) : null
+  if (m) return parseFloat(m[1])
+
+  // Fallback: extract from aria-label (e.g. aria-label="Session usage 29.8% used")
+  // This handles the "Weekly limit reached" case where the visible text says
+  // "Weekly limit reached" instead of "X% used" but the aria-label still has the percentage.
+  const ariaMatch = slice.match(ARIA_PERCENTAGE_PATTERN)
+  if (ariaMatch) return parseFloat(ariaMatch[1])
+
+  return null
+}
+
+/**
+ * Extracts a percentage value from an aria-label attribute in the HTML.
+ * Used as a fallback when the visible text doesn't contain "X% used"
+ * (e.g. "Weekly limit reached" instead of "29.8% used").
+ * Searches for aria-label="Session usage X% used" or aria-label="Hourly usage X% used".
+ */
+function extractPercentageFromAriaLabel(html: string, label: string): null | number {
+  const lowerLabel = label.toLowerCase()
+  const ariaPattern = /aria-label="([^"]+)"/gi
+  let match: null | RegExpExecArray
+  while ((match = ariaPattern.exec(html)) !== null) {
+    const ariaText = match[1]
+    if (ariaText.toLowerCase().startsWith(lowerLabel)) {
+      const pctMatch = ariaText.match(PERCENTAGE_PATTERN)
+      if (pctMatch) return parseFloat(pctMatch[1])
+    }
+  }
+  return null
 }
 
 function extractResetTimes(html: string): ResetTime {
@@ -185,10 +221,15 @@ function extractResetTimes(html: string): ResetTime {
   }
 
   RESETS_IN_PATTERN.lastIndex = 0
+  RESUMES_IN_PATTERN.lastIndex = 0
   const allLabels: { index: number; label: string }[] = []
   while ((m = RESETS_IN_PATTERN.exec(html)) !== null) {
     allLabels.push({ index: m.index, label: m[1].trim() })
   }
+  while ((m = RESUMES_IN_PATTERN.exec(html)) !== null) {
+    allLabels.push({ index: m.index, label: m[1].trim() })
+  }
+  allLabels.sort((a, b) => a.index - b.index)
 
   if (allLabels.length >= 1) {
     const sessionLabelMatch = allLabels[0]
@@ -269,6 +310,7 @@ async function fetchQuota(): Promise<QuotaResult> {
     resetTime: parsed.resetTime,
     session: parsed.session,
     weekly: parsed.weekly,
+    weeklyLimitReached: parsed.weeklyLimitReached,
   }
 }
 
@@ -293,6 +335,13 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
     }
   }
 
+  if (quota.weeklyLimitReached) {
+    const parts: string[] = []
+    parts.push('Limit reached')
+    if (quota.weekly !== null) parts.push(`${quota.weekly}% weekly`)
+    return { level: 'warning', text: parts.join(' · ') }
+  }
+
   const parts: string[] = []
   if (quota.session !== null) parts.push(`${quota.session}% session`)
   if (quota.weekly !== null) parts.push(`${quota.weekly}% weekly`)
@@ -310,7 +359,8 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
  * Returns `null` for any field that cannot be located.
  */
 function parseQuotaHtml(html: string): ParsedQuota {
-  const sessionUsage = extractPercentage(html, 'Session usage') ?? extractPercentage(html, 'Hourly usage')
+  const sessionLabel = html.toLowerCase().includes('session usage') ? 'Session usage' : 'Hourly usage'
+  const sessionUsage = extractPercentage(html, sessionLabel) ?? extractPercentageFromAriaLabel(html, sessionLabel)
   const weeklyUsage = extractPercentage(html, 'Weekly usage')
 
   let premiumRequests: null | string = null
@@ -333,10 +383,11 @@ function parseQuotaHtml(html: string): ParsedQuota {
     }
   }
 
-  const sectionLabel = html.toLowerCase().includes('session usage') ? 'Session usage' : 'Hourly usage'
-  const sessionModels = extractModelSegments(html, sectionLabel)
+  const sessionModels = extractModelSegments(html, sessionLabel)
   const weeklyModels = extractModelSegments(html, 'Weekly usage')
   const resetTime = extractResetTimes(html)
+
+  const weeklyLimitReached = WEEKLY_LIMIT_REACHED_PATTERN.test(html)
 
   return {
     models: { session: sessionModels, weekly: weeklyModels },
@@ -345,6 +396,7 @@ function parseQuotaHtml(html: string): ParsedQuota {
     resetTime,
     session: sessionUsage,
     weekly: weeklyUsage,
+    weeklyLimitReached,
   }
 }
 
@@ -446,21 +498,38 @@ const tui: (devMode?: boolean) => TuiPlugin =
           const hasWeeklyData = q.weekly !== null
           const hasSessionModels = q.models.session.length > 0
           const hasWeeklyModels = q.models.weekly.length > 0
+          const isLimitReached = q.weeklyLimitReached
 
           return (
             <box>
               <text fg={theme.current.text}>
                 <b>{printPluginHeader()}</b>
               </text>
-              {hasSessionData && <text fg={theme.current.textMuted}>• {q.session}% Session</text>}
-              {hasWeeklyData && <text fg={theme.current.textMuted}>• {q.weekly}% Weekly</text>}
+              {isLimitReached ? (
+                <>
+                  {hasSessionData && <text fg={theme.current.warning}>• Limit reached</text>}
+                  {hasWeeklyData && <text fg={theme.current.warning}>• {q.weekly}% Weekly</text>}
+                </>
+              ) : (
+                <>
+                  {hasSessionData && <text fg={theme.current.textMuted}>• {q.session}% Session</text>}
+                  {hasWeeklyData && <text fg={theme.current.textMuted}>• {q.weekly}% Weekly</text>}
+                </>
+              )}
 
               {hasSessionData && (
                 <box>
                   <text fg={theme.current.textMuted} marginTop={1}>
                     ─── Session ───
                   </text>
-                  {hasSessionModels ? (
+                  {isLimitReached ? (
+                    <box>
+                      <text fg={theme.current.warning}>Limit Reached</text>
+                      {q.resetTime.sessionLabel && (
+                        <text fg={theme.current.textMuted}>Resumes in {q.resetTime.sessionLabel}</text>
+                      )}
+                    </box>
+                  ) : hasSessionModels ? (
                     <box>
                       {q.models.session.slice(0, MAX_MODELS_DISPLAY).map(seg => (
                         <text fg={theme.current.text}>
@@ -482,7 +551,7 @@ const tui: (devMode?: boolean) => TuiPlugin =
 
               {hasWeeklyData && (
                 <box>
-                  <text fg={theme.current.textMuted} marginTop={1}>
+                  <text fg={isLimitReached ? theme.current.warning : theme.current.textMuted} marginTop={1}>
                     ─── Weekly ───
                   </text>
                   {hasWeeklyModels ? (
@@ -518,6 +587,13 @@ const plugin: TuiPluginModule & { id: string } = {
 
 export default plugin
 
-export { extractModelSegments, extractResetTimes, formatDisplayState, parseQuotaHtml, tui }
+export {
+  extractModelSegments,
+  extractPercentageFromAriaLabel,
+  extractResetTimes,
+  formatDisplayState,
+  parseQuotaHtml,
+  tui,
+}
 export { QuotaError }
 export type { DisplayLevel, DisplayState, ModelBreakdown, ModelSegment, ParsedQuota, QuotaData, QuotaResult, ResetTime }
