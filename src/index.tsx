@@ -53,6 +53,13 @@ enum QuotaError {
   SignedOut = 'signed_out',
 }
 
+type DetailCtx = {
+  isLimitReached: boolean
+  models: ModelSegment[]
+  resetLabel: null | string
+  theme: TuiThemeCurrent
+}
+
 /** Level of visual emphasis for display state text. */
 type DisplayLevel = 'default' | 'error' | 'muted' | 'success' | 'warning'
 
@@ -95,6 +102,10 @@ type QuotaData = {
 /** Discriminated result: either successful data or an error. */
 type QuotaResult = (QuotaData & { ok: true }) | { error: QuotaError; fetchedAt: number; ok: false }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 type ResetTime = {
   session: null | string
   sessionLabel: null | string
@@ -103,7 +114,7 @@ type ResetTime = {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// HTML Parsing
 // ---------------------------------------------------------------------------
 
 function extractModelSegments(html: string, sectionLabel: string): ModelSegment[] {
@@ -134,10 +145,6 @@ function extractModelSegments(html: string, sectionLabel: string): ModelSegment[
   }
   return segments.sort((a, b) => b.requests - a.requests)
 }
-
-// ---------------------------------------------------------------------------
-// HTML Parsing
-// ---------------------------------------------------------------------------
 
 /**
  * Extracts a percentage value found near the given label in the HTML.
@@ -201,16 +208,12 @@ function extractResetTimes(html: string): ResetTime {
 
   if (allTimes.length >= 1) {
     const sessionTime = allTimes[0]
-    if (
-      hourlyStart !== -1 &&
-      sessionTime.index > hourlyStart &&
-      (weeklyStart === -1 || sessionTime.index < weeklyStart)
-    ) {
-      session = sessionTime.time
-    }
-    if (hourlyStart === -1 && weeklyStart !== -1 && sessionTime.index < weeklyStart) {
-      session = sessionTime.time
-    }
+    const isAfterHourly = hourlyStart !== -1 && sessionTime.index > hourlyStart
+    const beforeWeekly = weeklyStart === -1 || sessionTime.index < weeklyStart
+    const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && sessionTime.index < weeklyStart
+
+    if (isAfterHourly && beforeWeekly) session = sessionTime.time
+    if (beforeWeeklyOnly) session = sessionTime.time
   }
 
   if (allTimes.length >= 2) {
@@ -233,16 +236,12 @@ function extractResetTimes(html: string): ResetTime {
 
   if (allLabels.length >= 1) {
     const sessionLabelMatch = allLabels[0]
-    if (
-      hourlyStart !== -1 &&
-      sessionLabelMatch.index > hourlyStart &&
-      (weeklyStart === -1 || sessionLabelMatch.index < weeklyStart)
-    ) {
-      sessionLabel = sessionLabelMatch.label
-    }
-    if (hourlyStart === -1 && weeklyStart !== -1 && sessionLabelMatch.index < weeklyStart) {
-      sessionLabel = sessionLabelMatch.label
-    }
+    const isAfterHourly = hourlyStart !== -1 && sessionLabelMatch.index > hourlyStart
+    const beforeWeekly = weeklyStart === -1 || sessionLabelMatch.index < weeklyStart
+    const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && sessionLabelMatch.index < weeklyStart
+
+    if (isAfterHourly && beforeWeekly) sessionLabel = sessionLabelMatch.label
+    if (beforeWeeklyOnly) sessionLabel = sessionLabelMatch.label
   }
 
   if (allLabels.length >= 2) {
@@ -314,6 +313,10 @@ async function fetchQuota(): Promise<QuotaResult> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Fetch
+// ---------------------------------------------------------------------------
+
 /** Formats a quota result into a display-ready state for the sidebar/home. */
 function formatDisplayState(quota?: QuotaResult): DisplayState {
   if (!quota) return { level: 'muted', text: 'Connect Ollama' }
@@ -351,7 +354,7 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch
+// Display
 // ---------------------------------------------------------------------------
 
 /**
@@ -401,8 +404,62 @@ function parseQuotaHtml(html: string): ParsedQuota {
 }
 
 // ---------------------------------------------------------------------------
-// Display
+// JSX Helpers (early-return pattern — no nested ternaries)
 // ---------------------------------------------------------------------------
+
+/** Renders a detail section (session or weekly) using early returns. */
+function renderDetailSection(label: string, ctx: DetailCtx) {
+  const { isLimitReached, models, resetLabel, theme } = ctx
+
+  if (isLimitReached) {
+    return (
+      <box>
+        <text fg={theme.warning}>Limit Reached</text>
+        {resetLabel && <text fg={theme.textMuted}>Resumes in {resetLabel}</text>}
+      </box>
+    )
+  }
+
+  if (models.length > 0) {
+    return (
+      <box>
+        {models.slice(0, MAX_MODELS_DISPLAY).map(seg => (
+          <text fg={theme.text}>
+            {seg.model}: {seg.requests} ({seg.widthPercent}%)
+          </text>
+        ))}
+        {models.length > MAX_MODELS_DISPLAY && (
+          <text fg={theme.textMuted}>+{models.length - MAX_MODELS_DISPLAY} more</text>
+        )}
+        {resetLabel && <text fg={theme.textMuted}>Resets in {resetLabel}</text>}
+      </box>
+    )
+  }
+
+  if (resetLabel) {
+    return <text fg={theme.textMuted}>Resets in {resetLabel}</text>
+  }
+
+  return <></>
+}
+
+/** Renders a usage summary line (limit-reached vs normal). */
+function renderUsageLines(q: QuotaData & { ok: true }, theme: TuiThemeCurrent) {
+  if (q.weeklyLimitReached) {
+    return (
+      <>
+        {q.session !== null && <text fg={theme.warning}>• Limit reached</text>}
+        {q.weekly !== null && <text fg={theme.warning}>• {q.weekly}% Weekly</text>}
+      </>
+    )
+  }
+  return (
+    <>
+      {q.session !== null && <text fg={theme.textMuted}>• {q.session}% Session</text>}
+      {q.weekly !== null && <text fg={theme.textMuted}>• {q.weekly}% Weekly</text>}
+    </>
+  )
+}
 
 /** Maps a display level to the corresponding theme color. */
 function resolveColor(level: DisplayLevel, theme: TuiThemeCurrent) {
@@ -418,6 +475,19 @@ function resolveColor(level: DisplayLevel, theme: TuiThemeCurrent) {
     case 'warning':
       return theme.warning
   }
+}
+
+/** Whether the quota result should show the fallback (non-data) view. */
+function shouldShowFallback(
+  q: QuotaResult | undefined,
+): q is
+  | (QuotaData & { ok: true; session: null; weekly: null })
+  | undefined
+  | { error: QuotaError; fetchedAt: number; ok: false } {
+  if (!q) return true
+  if (!q.ok) return true
+  if (q.session === null && q.weekly === null) return true
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +553,7 @@ const tui: (devMode?: boolean) => TuiPlugin =
           const q = result()
           const d = display()
 
-          if (!q?.ok || (q.ok && q.session === null && q.weekly === null)) {
+          if (shouldShowFallback(q)) {
             return (
               <box>
                 <text fg={theme.current.text}>
@@ -494,83 +564,40 @@ const tui: (devMode?: boolean) => TuiPlugin =
             )
           }
 
-          const hasSessionData = q.session !== null
-          const hasWeeklyData = q.weekly !== null
-          const hasSessionModels = q.models.session.length > 0
-          const hasWeeklyModels = q.models.weekly.length > 0
-          const isLimitReached = q.weeklyLimitReached
+          const sectionColor = q.weeklyLimitReached ? theme.current.warning : theme.current.textMuted
 
           return (
             <box>
               <text fg={theme.current.text}>
                 <b>{printPluginHeader()}</b>
               </text>
-              {isLimitReached ? (
-                <>
-                  {hasSessionData && <text fg={theme.current.warning}>• Limit reached</text>}
-                  {hasWeeklyData && <text fg={theme.current.warning}>• {q.weekly}% Weekly</text>}
-                </>
-              ) : (
-                <>
-                  {hasSessionData && <text fg={theme.current.textMuted}>• {q.session}% Session</text>}
-                  {hasWeeklyData && <text fg={theme.current.textMuted}>• {q.weekly}% Weekly</text>}
-                </>
-              )}
+              {renderUsageLines(q, theme.current)}
 
-              {hasSessionData && (
+              {q.session !== null && (
                 <box>
                   <text fg={theme.current.textMuted} marginTop={1}>
                     ─── Session ───
                   </text>
-                  {isLimitReached ? (
-                    <box>
-                      <text fg={theme.current.warning}>Limit Reached</text>
-                      {q.resetTime.sessionLabel && (
-                        <text fg={theme.current.textMuted}>Resumes in {q.resetTime.sessionLabel}</text>
-                      )}
-                    </box>
-                  ) : hasSessionModels ? (
-                    <box>
-                      {q.models.session.slice(0, MAX_MODELS_DISPLAY).map(seg => (
-                        <text fg={theme.current.text}>
-                          {seg.model}: {seg.requests} ({seg.widthPercent}%)
-                        </text>
-                      ))}
-                      {q.models.session.length > MAX_MODELS_DISPLAY && (
-                        <text fg={theme.current.textMuted}>+{q.models.session.length - MAX_MODELS_DISPLAY} more</text>
-                      )}
-                      {q.resetTime.sessionLabel && (
-                        <text fg={theme.current.textMuted}>Resets in {q.resetTime.sessionLabel}</text>
-                      )}
-                    </box>
-                  ) : q.resetTime.sessionLabel ? (
-                    <text fg={theme.current.textMuted}>Resets in {q.resetTime.sessionLabel}</text>
-                  ) : null}
+                  {renderDetailSection('Session', {
+                    isLimitReached: q.weeklyLimitReached,
+                    models: q.models.session,
+                    resetLabel: q.resetTime.sessionLabel,
+                    theme: theme.current,
+                  })}
                 </box>
               )}
 
-              {hasWeeklyData && (
+              {q.weekly !== null && (
                 <box>
-                  <text fg={isLimitReached ? theme.current.warning : theme.current.textMuted} marginTop={1}>
+                  <text fg={sectionColor} marginTop={1}>
                     ─── Weekly ───
                   </text>
-                  {hasWeeklyModels ? (
-                    <box>
-                      {q.models.weekly.slice(0, MAX_MODELS_DISPLAY).map(seg => (
-                        <text fg={theme.current.text}>
-                          {seg.model}: {seg.requests} ({seg.widthPercent}%)
-                        </text>
-                      ))}
-                      {q.models.weekly.length > MAX_MODELS_DISPLAY && (
-                        <text fg={theme.current.textMuted}>+{q.models.weekly.length - MAX_MODELS_DISPLAY} more</text>
-                      )}
-                      {q.resetTime.weeklyLabel && (
-                        <text fg={theme.current.textMuted}>Resets in {q.resetTime.weeklyLabel}</text>
-                      )}
-                    </box>
-                  ) : q.resetTime.weeklyLabel ? (
-                    <text fg={theme.current.textMuted}>Resets in {q.resetTime.weeklyLabel}</text>
-                  ) : null}
+                  {renderDetailSection('Weekly', {
+                    isLimitReached: false,
+                    models: q.models.weekly,
+                    resetLabel: q.resetTime.weeklyLabel,
+                    theme: theme.current,
+                  })}
                 </box>
               )}
             </box>
