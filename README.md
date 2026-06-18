@@ -76,7 +76,6 @@ The plugin shows different status messages in the sidebar depending on the state
 | **No Cookie**      | `OLLAMA_SESSION_COOKIE` is not set.                                                              |
 | **Signed Out**     | The session cookie has expired or is invalid.                                                    |
 | **Missing Data**   | The Ollama settings page loaded, but no quota fields (session, weekly, plan) could be extracted. |
-| **Parse Error**    | The HTML from the Ollama settings page could not be parsed.                                      |
 | **Network Error**  | The fetch to `ollama.com/settings` failed (timeout, DNS failure, or non-OK HTTP response).       |
 | **Unknown Error**  | An unrecognized error occurred.                                                                  |
 
