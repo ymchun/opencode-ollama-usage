@@ -3,11 +3,17 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import type {
   extractModelSegments as extractModelSegmentsFunction,
   extractPercentageFromAriaLabel as extractPercentageFromAriaLabelFunction,
+  extractPercentage as extractPercentageFunction,
   extractResetTimes as extractResetTimesFunction,
+  fetchQuota as fetchQuotaFunction,
   formatDisplayState as formatDisplayStateFunction,
   parseQuotaHtml as parseQuotaHtmlFunction,
   QuotaError,
   QuotaResult,
+  resolveColor as resolveColorFunction,
+  resolveRefreshInterval as resolveRefreshIntervalFunction,
+  shouldShowFallback as shouldShowFallbackFunction,
+  TuiThemeCurrent,
 } from '../index'
 
 // Cspell:ignore jsxs qwen
@@ -21,20 +27,30 @@ void mock.module('@opentui/solid/jsx-runtime', () => ({
 }))
 
 let extractModelSegments: typeof extractModelSegmentsFunction
+let extractPercentage: typeof extractPercentageFunction
 let extractPercentageFromAriaLabel: typeof extractPercentageFromAriaLabelFunction
 let extractResetTimes: typeof extractResetTimesFunction
+let fetchQuota: typeof fetchQuotaFunction
 let formatDisplayState: typeof formatDisplayStateFunction
 let parseQuotaHtml: typeof parseQuotaHtmlFunction
 let quotaError: typeof QuotaError
+let resolveColor: typeof resolveColorFunction
+let resolveRefreshInterval: typeof resolveRefreshIntervalFunction
+let shouldShowFallback: typeof shouldShowFallbackFunction
 
 beforeAll(async () => {
   const mod = await import('../index')
   extractModelSegments = mod.extractModelSegments
+  extractPercentage = mod.extractPercentage
   extractPercentageFromAriaLabel = mod.extractPercentageFromAriaLabel
   extractResetTimes = mod.extractResetTimes
+  fetchQuota = mod.fetchQuota
   formatDisplayState = mod.formatDisplayState
   parseQuotaHtml = mod.parseQuotaHtml
   quotaError = mod.QuotaError
+  resolveColor = mod.resolveColor
+  resolveRefreshInterval = mod.resolveRefreshInterval
+  shouldShowFallback = mod.shouldShowFallback
 })
 
 test('exports default with tui property', async () => {
@@ -241,6 +257,21 @@ describe('extractModelSegments', () => {
     expect(segments.length).toBe(1)
     expect(segments[0].model).toBe('test-model')
   })
+
+  test('does not leak weekly segments into hourly section', () => {
+    const hourlyHtml = `
+      <div>Hourly usage
+        <button type="button" class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none" style="width: 100%; background: #007aff"
+          data-usage-segment="" data-model="hourly-model" data-requests="1" aria-label="hourly-model: 1 request"></button>
+      </div>
+    `
+    const combined = hourlyHtml + WEEKLY_HTML
+    const hourlySegments = extractModelSegments(combined, 'Hourly usage')
+    const weeklySegments = extractModelSegments(combined, 'Weekly usage')
+    expect(hourlySegments.length).toBe(1)
+    expect(hourlySegments[0].model).toBe('hourly-model')
+    expect(weeklySegments.length).toBe(4)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -365,6 +396,24 @@ describe('extractResetTimes', () => {
     expect(result.weekly).toBe('2026-06-01T00:00:00Z')
     expect(result.weeklyLabel).toBe('3 days')
   })
+
+  test('assigns first item as weekly when both items are after weekly section', () => {
+    const html = `
+      <div>Weekly usage
+        <div class="local-time" data-time="2026-06-01T00:00:00Z">
+          Resets in 3 days
+        </div>
+      </div>
+      <div>Weekly usage
+        <div class="local-time" data-time="2026-06-08T00:00:00Z">
+          Resets in 1 day
+        </div>
+      </div>
+    `
+    const result = extractResetTimes(html)
+    expect(result.session).toBeNull()
+    expect(result.weekly).toBe('2026-06-01T00:00:00Z')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -474,6 +523,19 @@ describe('parseQuotaHtml integration', () => {
     expect(result.models.session.length).toBe(0)
     expect(result.models.weekly.length).toBe(0)
   })
+
+  test('extracts weekly percentage from aria-label when visible text lacks "X% used"', () => {
+    const padding = 'x'.repeat(220)
+    const html = `
+      <div>Session usage</div><div>0.1% used</div>
+      <div>Weekly usage</div><div>Weekly limit reached</div>
+      <div>${padding}</div>
+      <div aria-label="Weekly usage 100% used"></div>
+    `
+    const result = parseQuotaHtml(html)
+    expect(result.session).toBeCloseTo(0.1)
+    expect(result.weekly).toBe(100)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -528,6 +590,35 @@ describe('formatDisplayState', () => {
     const result = formatDisplayState(noCookieQuota)
     expect(result.level).toBe('muted')
     expect(result.text).toBe('No Cookie')
+  })
+
+  test('returns warning text for MissingData error', () => {
+    const missingDataQuota: QuotaResult = {
+      error: quotaError.MissingData,
+      fetchedAt: Date.now(),
+      ok: false,
+    }
+    const result = formatDisplayState(missingDataQuota)
+    expect(result.level).toBe('warning')
+    expect(result.text).toBe('Missing Data')
+  })
+
+  test('returns error text for Network error', () => {
+    const networkQuota: QuotaResult = { error: quotaError.Network, fetchedAt: Date.now(), ok: false }
+    const result = formatDisplayState(networkQuota)
+    expect(result.level).toBe('error')
+    expect(result.text).toBe('Network Error')
+  })
+
+  test('returns muted text for SignedOut error', () => {
+    const signedOutQuota: QuotaResult = {
+      error: quotaError.SignedOut,
+      fetchedAt: Date.now(),
+      ok: false,
+    }
+    const result = formatDisplayState(signedOutQuota)
+    expect(result.level).toBe('muted')
+    expect(result.text).toBe('Signed Out')
   })
 
   test('returns default level for normal usage', () => {
@@ -690,6 +781,19 @@ describe('extractResetTimes with resume pattern', () => {
     expect(result.sessionLabel).toBe('1 day.')
   })
 
+  test('extracts "Session resumes in" (singular verb form) label for session reset', () => {
+    const html = `
+      <div>Session usage
+        <div class="local-time" data-time="2026-06-08T00:00:00Z">
+          Session resumes in 1 day.
+        </div>
+      </div>
+    `
+    const result = extractResetTimes(html)
+    expect(result.session).toBe('2026-06-08T00:00:00Z')
+    expect(result.sessionLabel).toBe('1 day.')
+  })
+
   test('extracts both "Sessions resume in" for session and "Resets in" for weekly', () => {
     const result = extractResetTimes(WEEKLY_LIMIT_REACHED_HTML)
     expect(result.session).toBe('2026-06-08T00:00:00Z')
@@ -757,5 +861,311 @@ describe('parseQuotaHtml with weekly limit reached', () => {
   test('backward compat: 0% session HTML has weeklyLimitReached false', () => {
     const result = parseQuotaHtml(NO_USAGE_HTML)
     expect(result.weeklyLimitReached).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveRefreshInterval
+// ---------------------------------------------------------------------------
+
+describe('resolveRefreshInterval', () => {
+  test('returns the parsed value when a positive number is provided', () => {
+    expect(resolveRefreshInterval('60000')).toBe(60000)
+  })
+
+  test('returns the parsed value for a decimal number', () => {
+    expect(resolveRefreshInterval('1.5')).toBe(1.5)
+  })
+
+  test('falls back to default when value is zero', () => {
+    expect(resolveRefreshInterval('0')).toBe(300_000)
+  })
+
+  test('falls back to default when value is negative', () => {
+    expect(resolveRefreshInterval('-1000')).toBe(300_000)
+  })
+
+  test('falls back to default when value is NaN (non-numeric string)', () => {
+    expect(resolveRefreshInterval('abc')).toBe(300_000)
+  })
+
+  test('falls back to default when value is empty string', () => {
+    expect(resolveRefreshInterval('')).toBe(300_000)
+  })
+
+  test('falls back to default when value is Infinity', () => {
+    expect(resolveRefreshInterval('Infinity')).toBe(300_000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// QuotaError enum
+// ---------------------------------------------------------------------------
+
+describe('QuotaError enum', () => {
+  test('exposes all expected error codes', () => {
+    expect(String(quotaError.MissingData)).toBe('missing_data')
+    expect(String(quotaError.Network)).toBe('network')
+    expect(String(quotaError.NoCookie)).toBe('no_cookie')
+    expect(String(quotaError.SignedOut)).toBe('signed_out')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveColor
+// ---------------------------------------------------------------------------
+
+describe('resolveColor', () => {
+  const theme = {
+    error: 'err',
+    success: 'ok',
+    text: 'txt',
+    textMuted: 'mut',
+    warning: 'warn',
+  } as unknown as TuiThemeCurrent
+
+  test('maps default level to theme.text', () => {
+    expect(resolveColor('default', theme)).toBe(theme.text)
+  })
+
+  test('maps error level to theme.error', () => {
+    expect(resolveColor('error', theme)).toBe(theme.error)
+  })
+
+  test('maps muted level to theme.textMuted', () => {
+    expect(resolveColor('muted', theme)).toBe(theme.textMuted)
+  })
+
+  test('maps success level to theme.success', () => {
+    expect(resolveColor('success', theme)).toBe(theme.success)
+  })
+
+  test('maps warning level to theme.warning', () => {
+    expect(resolveColor('warning', theme)).toBe(theme.warning)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// shouldShowFallback
+// ---------------------------------------------------------------------------
+
+describe('shouldShowFallback', () => {
+  const okQuota: QuotaResult = {
+    fetchedAt: Date.now(),
+    models: { session: [], weekly: [] },
+    ok: true,
+    plan: null,
+    premiumRequests: null,
+    resetTime: { session: null, sessionLabel: null, weekly: null, weeklyLabel: null },
+    session: 10,
+    weekly: 20,
+    weeklyLimitReached: false,
+  }
+
+  test('returns true when quota is undefined', () => {
+    expect(shouldShowFallback(undefined)).toBe(true)
+  })
+
+  test('returns true when quota is an error result', () => {
+    const errQuota: QuotaResult = { error: quotaError.Network, fetchedAt: Date.now(), ok: false }
+    expect(shouldShowFallback(errQuota)).toBe(true)
+  })
+
+  test('returns true when ok but both session and weekly are null', () => {
+    const nullQuota: QuotaResult = { ...okQuota, session: null, weekly: null }
+    expect(shouldShowFallback(nullQuota)).toBe(true)
+  })
+
+  test('returns false when ok and session has a value', () => {
+    expect(shouldShowFallback({ ...okQuota, session: 0, weekly: null })).toBe(false)
+  })
+
+  test('returns false when ok and weekly has a value', () => {
+    expect(shouldShowFallback({ ...okQuota, session: null, weekly: 0 })).toBe(false)
+  })
+
+  test('returns false when ok and both have values', () => {
+    expect(shouldShowFallback(okQuota)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseQuotaHtml edge cases
+// ---------------------------------------------------------------------------
+
+describe('parseQuotaHtml edge cases', () => {
+  test('extracts plan-only HTML without usage sections', () => {
+    const html = '<div><span>Pro</span></div>'
+    const result = parseQuotaHtml(html)
+    expect(result.plan).toBe('Pro')
+    expect(result.session).toBeNull()
+    expect(result.weekly).toBeNull()
+    expect(result.premiumRequests).toBeNull()
+    expect(result.models.session.length).toBe(0)
+    expect(result.models.weekly.length).toBe(0)
+  })
+
+  test('extracts premium requests from HTML without usage sections', () => {
+    const html = '<div><span>Premium requests</span><span>250</span></div>'
+    const result = parseQuotaHtml(html)
+    expect(result.premiumRequests).toBe('250')
+    expect(result.plan).toBeNull()
+    expect(result.session).toBeNull()
+    expect(result.weekly).toBeNull()
+  })
+
+  test('returns all nulls for empty string', () => {
+    const result = parseQuotaHtml('')
+    expect(result.session).toBeNull()
+    expect(result.weekly).toBeNull()
+    expect(result.plan).toBeNull()
+    expect(result.premiumRequests).toBeNull()
+    expect(result.weeklyLimitReached).toBe(false)
+    expect(result.models.session.length).toBe(0)
+    expect(result.models.weekly.length).toBe(0)
+  })
+
+  test('detects weeklyLimitReached flag from text marker', () => {
+    const html = '<div>Weekly limit reached</div>'
+    const result = parseQuotaHtml(html)
+    expect(result.weeklyLimitReached).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// fetchQuota
+// ---------------------------------------------------------------------------
+
+describe('fetchQuota', () => {
+  const VALID_HTML = `
+    <div>Session usage</div><div>0.1% used</div>
+    <div>Weekly usage</div><div>10.2% used</div>
+  `
+  const SIGNED_OUT_HTML = '<form action="/api/auth/signin"><input type="password" name="password" /></form>'
+
+  function mockFetchResponse(html: string, ok = true): Response {
+    return {
+      ok,
+      text: () => Promise.resolve(html),
+    } as Response
+  }
+
+  function withMockedFetch(impl: (req: Request) => Promise<Response>, fn: () => Promise<void>) {
+    const original = globalThis.fetch
+    globalThis.fetch = mock(impl) as unknown as typeof globalThis.fetch
+    return fn().finally(() => {
+      globalThis.fetch = original
+    })
+  }
+
+  test('returns NoCookie when cookie is undefined', async () => {
+    const result = await fetchQuota(undefined)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe(quotaError.NoCookie)
+  })
+
+  test('returns NoCookie when cookie is empty string', async () => {
+    const result = await fetchQuota('')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe(quotaError.NoCookie)
+  })
+
+  test('returns Network when fetch throws', async () => {
+    await withMockedFetch(
+      () => Promise.reject(new Error('network down')),
+      async () => {
+        const result = await fetchQuota('session=abc')
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.error).toBe(quotaError.Network)
+      },
+    )
+  })
+
+  test('returns Network when response is not ok', async () => {
+    await withMockedFetch(
+      () => Promise.resolve(mockFetchResponse('', false)),
+      async () => {
+        const result = await fetchQuota('session=abc')
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.error).toBe(quotaError.Network)
+      },
+    )
+  })
+
+  test('returns SignedOut when HTML contains signin markers', async () => {
+    await withMockedFetch(
+      () => Promise.resolve(mockFetchResponse(SIGNED_OUT_HTML)),
+      async () => {
+        const result = await fetchQuota('session=abc')
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.error).toBe(quotaError.SignedOut)
+      },
+    )
+  })
+
+  test('returns MissingData when HTML has no quota fields', async () => {
+    await withMockedFetch(
+      () => Promise.resolve(mockFetchResponse('<div>nothing useful</div>')),
+      async () => {
+        const result = await fetchQuota('session=abc')
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.error).toBe(quotaError.MissingData)
+      },
+    )
+  })
+
+  test('returns ok with parsed data for valid HTML', async () => {
+    await withMockedFetch(
+      () => Promise.resolve(mockFetchResponse(VALID_HTML)),
+      async () => {
+        const result = await fetchQuota('session=abc')
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+          expect(result.session).toBeCloseTo(0.1)
+          expect(result.weekly).toBeCloseTo(10.2)
+        }
+      },
+    )
+  })
+
+  test('sanitizes CRLF from cookie before sending', async () => {
+    let capturedCookie: string | undefined
+    await withMockedFetch(
+      (_url: RequestInfo | URL, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string> | undefined
+        capturedCookie = headers?.['Cookie']
+        return Promise.resolve(mockFetchResponse(VALID_HTML))
+      },
+      async () => {
+        await fetchQuota('session=abc\r\nX-Injected: evil')
+      },
+    )
+    expect(capturedCookie).toBe('session=abcX-Injected: evil')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractPercentage
+// ---------------------------------------------------------------------------
+
+describe('extractPercentage', () => {
+  test('extracts percentage near the label', () => {
+    const html = '<div>Session usage</div><div>29.8% used</div>'
+    expect(extractPercentage(html, 'Session usage')).toBeCloseTo(29.8)
+  })
+
+  test('returns null when label is not found', () => {
+    expect(extractPercentage('<div>no label here</div>', 'Session usage')).toBeNull()
+  })
+
+  test('returns null when no percentage pattern is within the slice window', () => {
+    const padding = 'x'.repeat(220)
+    const html = `<div>Session usage</div>${padding}<div>29.8% used</div>`
+    expect(extractPercentage(html, 'Session usage')).toBeNull()
+  })
+
+  test('falls back to aria-label percentage within the slice window', () => {
+    const html = '<div>Session usage</div><div aria-label="Session usage 50% used"></div>'
+    expect(extractPercentage(html, 'Session usage')).toBe(50)
   })
 })

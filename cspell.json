@@ -1,21 +1,6 @@
 {
-  "enableFiletypes": [
-    "sh"
-  ],
-  "ignorePaths": [
-    ".vscode/**",
-    "*.svg",
-    "bun.lock",
-    "node_modules",
-    "package.json",
-    "tsconfig.json"
-  ],
+  "enableFiletypes": ["sh"],
+  "ignorePaths": [".vscode/**", "*.svg", "bun.lock", "node_modules", "package.json", "tsconfig.json"],
   "version": "0.2",
-  "words": [
-    "npmjs",
-    "ollama",
-    "opencode",
-    "opentui",
-    "ymchun"
-  ]
+  "words": ["misassignment", "misassigned", "npmjs", "ollama", "opencode", "opentui", "ultraworked", "ymchun"]
 }

@@ -37,7 +37,7 @@ const ARIA_PERCENTAGE_PATTERN = /aria-label="[^"]*?([0-9]+(?:\.[0-9]+)?)\s*%\s*u
 const SEGMENT_BUTTON_PATTERN = /<button[^>]+data-usage-segment[^>]*>/g
 const RESET_TIME_PATTERN = /data-time="([^"]*)"/g
 const RESETS_IN_PATTERN = /Resets in\s+([^<]*)/gi
-const RESUMES_IN_PATTERN = /Sessions? resume in\s+([^<]*)/gi
+const RESUMES_IN_PATTERN = /Sessions? resumes? in\s+([^<]*)/gi
 const WEEKLY_LIMIT_REACHED_PATTERN = /Weekly limit reached/i
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,6 @@ enum QuotaError {
   MissingData = 'missing_data',
   Network = 'network',
   NoCookie = 'no_cookie',
-  ParseError = 'parse_error',
   SignedOut = 'signed_out',
 }
 
@@ -126,19 +125,18 @@ function assignSessionWeekly(
   const first = items[0]
   const isAfterHourly = hourlyStart !== -1 && first.index > hourlyStart
   const beforeWeekly = weeklyStart === -1 || first.index < weeklyStart
-  const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && first.index < weeklyStart
 
   let session: null | string = null
   let weekly: null | string = null
 
   if (isAfterHourly && beforeWeekly) session = first.value
-  if (beforeWeeklyOnly) session = first.value
 
-  if (items.length >= 2) {
-    weekly = items[1].value
-  } else if (items.length === 1 && weeklyStart !== -1 && first.index > weeklyStart) {
+  const firstAfterWeekly = weeklyStart !== -1 && first.index > weeklyStart
+  if (firstAfterWeekly) {
     weekly = first.value
     session = null
+  } else if (items.length >= 2) {
+    weekly = items[1].value
   }
 
   return { session, weekly }
@@ -148,7 +146,8 @@ function extractModelSegments(html: string, sectionLabel: string): ModelSegment[
   const sectionStart = html.toLowerCase().indexOf(sectionLabel.toLowerCase())
   if (sectionStart === -1) return []
 
-  const nextSectionLabel = sectionLabel.toLowerCase().includes('session') ? 'weekly usage' : null
+  const isSessionLike = sectionLabel.toLowerCase().includes('session') || sectionLabel.toLowerCase().includes('hourly')
+  const nextSectionLabel = isSessionLike ? 'weekly usage' : null
   const sectionEnd = nextSectionLabel ? html.toLowerCase().indexOf(nextSectionLabel, sectionStart + 1) : html.length
 
   const sectionHtml = html.slice(sectionStart, sectionEnd === -1 ? html.length : sectionEnd)
@@ -261,9 +260,11 @@ async function fetchQuota(cookie: string | undefined): Promise<QuotaResult> {
     return { error: QuotaError.NoCookie, fetchedAt, ok: false }
   }
 
+  const sanitizedCookie = cookie.replace(/[\r\n]/g, '')
+
   let response: Response
   try {
-    response = await fetchSettingsPage(cookie)
+    response = await fetchSettingsPage(sanitizedCookie)
   } catch {
     return { error: QuotaError.Network, fetchedAt, ok: false }
   }
@@ -329,8 +330,6 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
         return { level: 'error', text: 'Network Error' }
       case QuotaError.NoCookie:
         return { level: 'muted', text: 'No Cookie' }
-      case QuotaError.ParseError:
-        return { level: 'error', text: 'Parse Error' }
       case QuotaError.SignedOut:
         return { level: 'muted', text: 'Signed Out' }
       default:
@@ -360,7 +359,7 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
 function parseQuotaHtml(html: string): ParsedQuota {
   const sessionLabel = html.toLowerCase().includes('session usage') ? 'Session usage' : 'Hourly usage'
   const sessionUsage = extractPercentage(html, sessionLabel) ?? extractPercentageFromAriaLabel(html, sessionLabel)
-  const weeklyUsage = extractPercentage(html, 'Weekly usage')
+  const weeklyUsage = extractPercentage(html, 'Weekly usage') ?? extractPercentageFromAriaLabel(html, 'Weekly usage')
 
   const lines = html
     .split(/<[^>]+>/)
@@ -549,6 +548,8 @@ function resolveColor(level: DisplayLevel, theme: TuiThemeCurrent) {
       return theme.success
     case 'warning':
       return theme.warning
+    default:
+      return theme.text
   }
 }
 
@@ -633,11 +634,26 @@ export default plugin
 
 export {
   extractModelSegments,
+  extractPercentage,
   extractPercentageFromAriaLabel,
   extractResetTimes,
+  fetchQuota,
   formatDisplayState,
   parseQuotaHtml,
+  resolveColor,
+  resolveRefreshInterval,
+  shouldShowFallback,
   tui,
 }
 export { QuotaError }
-export type { DisplayLevel, DisplayState, ModelBreakdown, ModelSegment, ParsedQuota, QuotaData, QuotaResult, ResetTime }
+export type {
+  DisplayLevel,
+  DisplayState,
+  ModelBreakdown,
+  ModelSegment,
+  ParsedQuota,
+  QuotaData,
+  QuotaResult,
+  ResetTime,
+  TuiThemeCurrent,
+}
