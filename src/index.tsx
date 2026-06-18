@@ -66,6 +66,8 @@ type DisplayLevel = 'default' | 'error' | 'muted' | 'success' | 'warning'
 /** Resolved display state with text and color level. */
 type DisplayState = { level: DisplayLevel; text: string }
 
+type IndexedValue = { index: number; value: string }
+
 type ModelBreakdown = {
   session: ModelSegment[]
   weekly: ModelSegment[]
@@ -102,10 +104,6 @@ type QuotaData = {
 /** Discriminated result: either successful data or an error. */
 type QuotaResult = (QuotaData & { ok: true }) | { error: QuotaError; fetchedAt: number; ok: false }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 type ResetTime = {
   session: null | string
   sessionLabel: null | string
@@ -113,9 +111,38 @@ type ResetTime = {
   weeklyLabel: null | string
 }
 
-// ---------------------------------------------------------------------------
-// HTML Parsing
-// ---------------------------------------------------------------------------
+/**
+ * Assigns session/weekly values from position-sorted items based on section markers.
+ * The first item before the weekly section becomes session; the next becomes weekly.
+ * If only one item exists and it's after the weekly section, it becomes weekly only.
+ */
+function assignSessionWeekly(
+  items: IndexedValue[],
+  hourlyStart: number,
+  weeklyStart: number,
+): { session: null | string; weekly: null | string } {
+  if (items.length === 0) return { session: null, weekly: null }
+
+  const first = items[0]
+  const isAfterHourly = hourlyStart !== -1 && first.index > hourlyStart
+  const beforeWeekly = weeklyStart === -1 || first.index < weeklyStart
+  const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && first.index < weeklyStart
+
+  let session: null | string = null
+  let weekly: null | string = null
+
+  if (isAfterHourly && beforeWeekly) session = first.value
+  if (beforeWeeklyOnly) session = first.value
+
+  if (items.length >= 2) {
+    weekly = items[1].value
+  } else if (items.length === 1 && weeklyStart !== -1 && first.index > weeklyStart) {
+    weekly = first.value
+    session = null
+  }
+
+  return { session, weekly }
+}
 
 function extractModelSegments(html: string, sectionLabel: string): ModelSegment[] {
   const sectionStart = html.toLowerCase().indexOf(sectionLabel.toLowerCase())
@@ -126,22 +153,10 @@ function extractModelSegments(html: string, sectionLabel: string): ModelSegment[
 
   const sectionHtml = html.slice(sectionStart, sectionEnd === -1 ? html.length : sectionEnd)
 
-  SEGMENT_BUTTON_PATTERN.lastIndex = 0
   const segments: ModelSegment[] = []
-  let btnMatch: null | RegExpExecArray
-  while ((btnMatch = SEGMENT_BUTTON_PATTERN.exec(sectionHtml)) !== null) {
-    const btn = btnMatch[0]
-    const model = /data-model="([^"]*)"/.exec(btn)?.[1] ?? ''
-    const requests = parseInt(/data-requests="(\d+)"/.exec(btn)?.[1] ?? '0', 10)
-    const styleMatch = /style="([^"]*)"/.exec(btn)
-    const style = styleMatch?.[1] ?? ''
-    const widthMatch = /width:\s*([0-9]+(?:\.[0-9]+)?)%/i.exec(style)
-    const bgMatch = /background:\s*(#[0-9a-f]{3,8}|[a-z]+)/i.exec(style)
-    const widthPercent = widthMatch ? parseFloat(widthMatch[1]) : 0
-    const color = bgMatch ? bgMatch[1].trim() : ''
-    if (model) {
-      segments.push({ color, model, requests, widthPercent })
-    }
+  for (const btnMatch of sectionHtml.matchAll(SEGMENT_BUTTON_PATTERN)) {
+    const segment = parseSegmentButton(btnMatch[0])
+    if (segment) segments.push(segment)
   }
   return segments.sort((a, b) => b.requests - a.requests)
 }
@@ -177,13 +192,31 @@ function extractPercentage(html: string, label: string): null | number {
  */
 function extractPercentageFromAriaLabel(html: string, label: string): null | number {
   const lowerLabel = label.toLowerCase()
-  const ariaPattern = /aria-label="([^"]+)"/gi
-  let match: null | RegExpExecArray
-  while ((match = ariaPattern.exec(html)) !== null) {
+  for (const match of html.matchAll(/aria-label="([^"]+)"/gi)) {
     const ariaText = match[1]
     if (ariaText.toLowerCase().startsWith(lowerLabel)) {
       const pctMatch = ariaText.match(PERCENTAGE_PATTERN)
       if (pctMatch) return parseFloat(pctMatch[1])
+    }
+  }
+  return null
+}
+
+/** Extracts the plan name (Free/Pro/Enterprise/Team/Starter) from tag-stripped lines. */
+function extractPlan(lines: string[]): null | string {
+  for (const line of lines) {
+    if (/^(Free|Pro|Enterprise|Team|Starter)\s*$/i.test(line)) {
+      return line
+    }
+  }
+  return null
+}
+
+/** Extracts the premium requests value from tag-stripped lines. */
+function extractPremiumRequests(lines: string[]): null | string {
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === 'Premium requests' && lines[i + 1]) {
+      return lines[i + 1]
     }
   }
   return null
@@ -194,89 +227,46 @@ function extractResetTimes(html: string): ResetTime {
   const hourlyStart = sessionStart === -1 ? html.toLowerCase().indexOf('hourly usage') : sessionStart
   const weeklyStart = html.toLowerCase().indexOf('weekly usage')
 
-  let session: null | string = null
-  let sessionLabel: null | string = null
-  let weekly: null | string = null
-  let weeklyLabel: null | string = null
-
-  RESET_TIME_PATTERN.lastIndex = 0
-  const allTimes: { index: number; time: string }[] = []
-  let m: null | RegExpExecArray
-  while ((m = RESET_TIME_PATTERN.exec(html)) !== null) {
-    allTimes.push({ index: m.index, time: m[1] })
+  const allTimes: IndexedValue[] = []
+  for (const m of html.matchAll(RESET_TIME_PATTERN)) {
+    allTimes.push({ index: m.index, value: m[1] })
   }
 
-  if (allTimes.length >= 1) {
-    const sessionTime = allTimes[0]
-    const isAfterHourly = hourlyStart !== -1 && sessionTime.index > hourlyStart
-    const beforeWeekly = weeklyStart === -1 || sessionTime.index < weeklyStart
-    const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && sessionTime.index < weeklyStart
+  const times = assignSessionWeekly(allTimes, hourlyStart, weeklyStart)
 
-    if (isAfterHourly && beforeWeekly) session = sessionTime.time
-    if (beforeWeeklyOnly) session = sessionTime.time
+  const allLabels: IndexedValue[] = []
+  for (const m of html.matchAll(RESETS_IN_PATTERN)) {
+    allLabels.push({ index: m.index, value: m[1].trim() })
   }
-
-  if (allTimes.length >= 2) {
-    weekly = allTimes[1].time
-  } else if (allTimes.length === 1 && weeklyStart !== -1 && allTimes[0].index > weeklyStart) {
-    weekly = allTimes[0].time
-    session = null
-  }
-
-  RESETS_IN_PATTERN.lastIndex = 0
-  RESUMES_IN_PATTERN.lastIndex = 0
-  const allLabels: { index: number; label: string }[] = []
-  while ((m = RESETS_IN_PATTERN.exec(html)) !== null) {
-    allLabels.push({ index: m.index, label: m[1].trim() })
-  }
-  while ((m = RESUMES_IN_PATTERN.exec(html)) !== null) {
-    allLabels.push({ index: m.index, label: m[1].trim() })
+  for (const m of html.matchAll(RESUMES_IN_PATTERN)) {
+    allLabels.push({ index: m.index, value: m[1].trim() })
   }
   allLabels.sort((a, b) => a.index - b.index)
 
-  if (allLabels.length >= 1) {
-    const sessionLabelMatch = allLabels[0]
-    const isAfterHourly = hourlyStart !== -1 && sessionLabelMatch.index > hourlyStart
-    const beforeWeekly = weeklyStart === -1 || sessionLabelMatch.index < weeklyStart
-    const beforeWeeklyOnly = hourlyStart === -1 && weeklyStart !== -1 && sessionLabelMatch.index < weeklyStart
+  const labels = assignSessionWeekly(allLabels, hourlyStart, weeklyStart)
 
-    if (isAfterHourly && beforeWeekly) sessionLabel = sessionLabelMatch.label
-    if (beforeWeeklyOnly) sessionLabel = sessionLabelMatch.label
+  return {
+    session: times.session,
+    sessionLabel: labels.session,
+    weekly: times.weekly,
+    weeklyLabel: labels.weekly,
   }
-
-  if (allLabels.length >= 2) {
-    weeklyLabel = allLabels[1].label
-  } else if (allLabels.length === 1 && weeklyStart !== -1 && allLabels[0].index > weeklyStart) {
-    weeklyLabel = allLabels[0].label
-    sessionLabel = null
-  }
-
-  return { session, sessionLabel, weekly, weeklyLabel }
 }
 
 /** Fetches Ollama quota data from the settings page. */
-async function fetchQuota(): Promise<QuotaResult> {
+async function fetchQuota(cookie: string | undefined): Promise<QuotaResult> {
   const fetchedAt = Date.now()
 
-  const cookie = process.env[ENV_COOKIE]
   if (!cookie) {
     return { error: QuotaError.NoCookie, fetchedAt, ok: false }
   }
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-
   let response: Response
   try {
-    response = await fetch(SETTINGS_URL, {
-      headers: { Cookie: cookie },
-      signal: controller.signal,
-    })
+    response = await fetchSettingsPage(cookie)
   } catch {
-    clearTimeout(timeoutId)
     return { error: QuotaError.Network, fetchedAt, ok: false }
   }
-  clearTimeout(timeoutId)
 
   if (!response.ok) {
     return { error: QuotaError.Network, fetchedAt, ok: false }
@@ -313,9 +303,19 @@ async function fetchQuota(): Promise<QuotaResult> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Fetch
-// ---------------------------------------------------------------------------
+/** Fetches the Ollama settings page HTML with a timeout-bounded request. */
+async function fetchSettingsPage(cookie: string): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  try {
+    return await fetch(SETTINGS_URL, {
+      headers: { Cookie: cookie },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
 
 /** Formats a quota result into a display-ready state for the sidebar/home. */
 function formatDisplayState(quota?: QuotaResult): DisplayState {
@@ -353,10 +353,6 @@ function formatDisplayState(quota?: QuotaResult): DisplayState {
   return { level: 'muted', text: 'Connect Ollama' }
 }
 
-// ---------------------------------------------------------------------------
-// Display
-// ---------------------------------------------------------------------------
-
 /**
  * Parses raw HTML from the Ollama settings page into structured quota fields.
  * Returns `null` for any field that cannot be located.
@@ -366,25 +362,13 @@ function parseQuotaHtml(html: string): ParsedQuota {
   const sessionUsage = extractPercentage(html, sessionLabel) ?? extractPercentageFromAriaLabel(html, sessionLabel)
   const weeklyUsage = extractPercentage(html, 'Weekly usage')
 
-  let premiumRequests: null | string = null
-  let plan: null | string = null
-
   const lines = html
     .split(/<[^>]+>/)
     .map(l => l.trim())
     .filter(Boolean)
 
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] === 'Premium requests' && lines[i + 1]) {
-      premiumRequests = lines[i + 1]
-    }
-  }
-
-  for (const line of lines) {
-    if (/^(Free|Pro|Enterprise|Team|Starter)\s*$/i.test(line) && !plan) {
-      plan = line
-    }
-  }
+  const premiumRequests = extractPremiumRequests(lines)
+  const plan = extractPlan(lines)
 
   const sessionModels = extractModelSegments(html, sessionLabel)
   const weeklyModels = extractModelSegments(html, 'Weekly usage')
@@ -400,6 +384,24 @@ function parseQuotaHtml(html: string): ParsedQuota {
     session: sessionUsage,
     weekly: weeklyUsage,
     weeklyLimitReached,
+  }
+}
+
+/** Parses a single segment button HTML string into a ModelSegment, or null if no model. */
+function parseSegmentButton(btn: string): ModelSegment | null {
+  const model = /data-model="([^"]*)"/.exec(btn)?.[1] ?? ''
+  if (!model) return null
+
+  const requests = parseInt(/data-requests="(\d+)"/.exec(btn)?.[1] ?? '0', 10)
+  const style = /style="([^"]*)"/.exec(btn)?.[1] ?? ''
+  const widthMatch = /width:\s*([0-9]+(?:\.[0-9]+)?)%/i.exec(style)
+  const bgMatch = /background:\s*(#[0-9a-f]{3,8}|[a-z]+)/i.exec(style)
+
+  return {
+    color: bgMatch ? bgMatch[1].trim() : '',
+    model,
+    requests,
+    widthPercent: widthMatch ? parseFloat(widthMatch[1]) : 0,
   }
 }
 
@@ -443,6 +445,75 @@ function renderDetailSection(label: string, ctx: DetailCtx) {
   return <></>
 }
 
+/** Renders the home bottom slot: a single header line with the current display state. */
+function renderHomeBottom(ctx: TuiSlotContext, display: DisplayState, header: string) {
+  const theme = ctx.theme
+  const d = display
+  return (
+    <box paddingTop={2}>
+      <text fg={resolveColor(d.level, theme.current)}>
+        {header}: {d.text}
+      </text>
+    </box>
+  )
+}
+
+/** Renders the sidebar content slot: header, usage lines, and detail sections. */
+function renderSidebarContent(ctx: TuiSlotContext, q: QuotaResult | undefined, display: DisplayState, header: string) {
+  const theme = ctx.theme
+  const d = display
+
+  if (shouldShowFallback(q)) {
+    return (
+      <box>
+        <text fg={theme.current.text}>
+          <b>{header}</b>
+        </text>
+        <text fg={resolveColor(d.level, theme.current)}>{d.text}</text>
+      </box>
+    )
+  }
+
+  const sectionColor = q.weeklyLimitReached ? theme.current.warning : theme.current.textMuted
+
+  return (
+    <box>
+      <text fg={theme.current.text}>
+        <b>{header}</b>
+      </text>
+      {renderUsageLines(q, theme.current)}
+
+      {q.session !== null && (
+        <box>
+          <text fg={theme.current.textMuted} marginTop={1}>
+            ─── Session ───
+          </text>
+          {renderDetailSection('Session', {
+            isLimitReached: q.weeklyLimitReached,
+            models: q.models.session,
+            resetLabel: q.resetTime.sessionLabel,
+            theme: theme.current,
+          })}
+        </box>
+      )}
+
+      {q.weekly !== null && (
+        <box>
+          <text fg={sectionColor} marginTop={1}>
+            ─── Weekly ───
+          </text>
+          {renderDetailSection('Weekly', {
+            isLimitReached: false,
+            models: q.models.weekly,
+            resetLabel: q.resetTime.weeklyLabel,
+            theme: theme.current,
+          })}
+        </box>
+      )}
+    </box>
+  )
+}
+
 /** Renders a usage summary line (limit-reached vs normal). */
 function renderUsageLines(q: QuotaData & { ok: true }, theme: TuiThemeCurrent) {
   if (q.weeklyLimitReached) {
@@ -461,6 +532,10 @@ function renderUsageLines(q: QuotaData & { ok: true }, theme: TuiThemeCurrent) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Plugin
+// ---------------------------------------------------------------------------
+
 /** Maps a display level to the corresponding theme color. */
 function resolveColor(level: DisplayLevel, theme: TuiThemeCurrent) {
   switch (level) {
@@ -477,6 +552,12 @@ function resolveColor(level: DisplayLevel, theme: TuiThemeCurrent) {
   }
 }
 
+/** Resolves the refresh interval from the raw env string, falling back to the default. */
+function resolveRefreshInterval(rawEnvValue: string): number {
+  const parsed = Number(rawEnvValue)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_INTERVAL_MS
+}
+
 /** Whether the quota result should show the fallback (non-data) view. */
 function shouldShowFallback(
   q: QuotaResult | undefined,
@@ -490,16 +571,14 @@ function shouldShowFallback(
   return false
 }
 
-// ---------------------------------------------------------------------------
-// Plugin
-// ---------------------------------------------------------------------------
+function tui(devMode = false): TuiPlugin {
+  return async api => {
+    const cookie = process.env[ENV_COOKIE]
+    const refreshIntervalMs = resolveRefreshInterval(process.env[ENV_REFRESH_INTERVAL] ?? '')
 
-const tui: (devMode?: boolean) => TuiPlugin =
-  (devMode = false) =>
-  async api => {
     const cached = api.kv.get<null | QuotaResult>(CACHE_KEY) ?? null
 
-    const [quota, { refetch }] = createResource<QuotaResult>(fetchQuota, {
+    const [quota, { refetch }] = createResource<QuotaResult>(() => fetchQuota(cookie), {
       initialValue: cached ?? undefined,
     })
 
@@ -510,9 +589,7 @@ const tui: (devMode?: boolean) => TuiPlugin =
       }
     })
 
-    const rawInterval = Number(process.env[ENV_REFRESH_INTERVAL] ?? '')
-    const intervalMs = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : DEFAULT_REFRESH_INTERVAL_MS
-    const id = setInterval(refetch, intervalMs)
+    const id = setInterval(refetch, refreshIntervalMs)
     api.lifecycle.onDispose(() => clearInterval(id))
 
     const result = (): QuotaResult | undefined => {
@@ -523,7 +600,7 @@ const tui: (devMode?: boolean) => TuiPlugin =
       return q
     }
 
-    const printPluginHeader = () => `⚡Ollama Usage ${devMode ? '(DEV mode)' : ''}`
+    const header = () => `⚡Ollama Usage ${devMode ? '(DEV mode)' : ''}`
 
     const display = (): DisplayState => formatDisplayState(result())
 
@@ -531,16 +608,7 @@ const tui: (devMode?: boolean) => TuiPlugin =
       order: 900,
       slots: {
         home_bottom(ctx: TuiSlotContext) {
-          const theme = ctx.theme
-          const d = display()
-
-          return (
-            <box paddingTop={2}>
-              <text fg={resolveColor(d.level, theme.current)}>
-                {printPluginHeader()}: {d.text}
-              </text>
-            </box>
-          )
+          return renderHomeBottom(ctx, display(), header())
         },
       },
     })
@@ -549,63 +617,12 @@ const tui: (devMode?: boolean) => TuiPlugin =
       order: 150,
       slots: {
         sidebar_content(ctx: TuiSlotContext) {
-          const theme = ctx.theme
-          const q = result()
-          const d = display()
-
-          if (shouldShowFallback(q)) {
-            return (
-              <box>
-                <text fg={theme.current.text}>
-                  <b>{printPluginHeader()}</b>
-                </text>
-                <text fg={resolveColor(d.level, theme.current)}>{d.text}</text>
-              </box>
-            )
-          }
-
-          const sectionColor = q.weeklyLimitReached ? theme.current.warning : theme.current.textMuted
-
-          return (
-            <box>
-              <text fg={theme.current.text}>
-                <b>{printPluginHeader()}</b>
-              </text>
-              {renderUsageLines(q, theme.current)}
-
-              {q.session !== null && (
-                <box>
-                  <text fg={theme.current.textMuted} marginTop={1}>
-                    ─── Session ───
-                  </text>
-                  {renderDetailSection('Session', {
-                    isLimitReached: q.weeklyLimitReached,
-                    models: q.models.session,
-                    resetLabel: q.resetTime.sessionLabel,
-                    theme: theme.current,
-                  })}
-                </box>
-              )}
-
-              {q.weekly !== null && (
-                <box>
-                  <text fg={sectionColor} marginTop={1}>
-                    ─── Weekly ───
-                  </text>
-                  {renderDetailSection('Weekly', {
-                    isLimitReached: false,
-                    models: q.models.weekly,
-                    resetLabel: q.resetTime.weeklyLabel,
-                    theme: theme.current,
-                  })}
-                </box>
-              )}
-            </box>
-          )
+          return renderSidebarContent(ctx, result(), display(), header())
         },
       },
     })
   }
+}
 
 const plugin: TuiPluginModule & { id: string } = {
   id: 'ollama.usage',
