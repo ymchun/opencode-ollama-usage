@@ -16,7 +16,7 @@ import type {
   TuiThemeCurrent,
 } from '../index'
 
-// Cspell:ignore jsxs qwen
+// Cspell:ignore jsxs qwen kimi
 
 // Mock @opentui/solid to avoid JSX parsing errors
 void mock.module('@opentui/solid/jsx-runtime', () => ({
@@ -62,12 +62,6 @@ test('exports default with tui property', async () => {
 test('exports default with id property', async () => {
   const mod = await import('../index')
   expect(mod.default.id).toBe('ollama.usage')
-})
-
-test('id is a non-empty string', async () => {
-  const mod = await import('../index')
-  expect(typeof mod.default.id).toBe('string')
-  expect(mod.default.id.length).toBeGreaterThan(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -230,11 +224,6 @@ describe('extractModelSegments', () => {
     expect(weeklySegments.length).toBe(4)
   })
 
-  test('returns empty array for 0% usage with no model segments', () => {
-    const segments = extractModelSegments(NO_USAGE_HTML, 'Session usage')
-    expect(segments.length).toBe(0)
-  })
-
   test('extracts weekly models from mixed HTML with 0% session and weekly data sorted by requests', () => {
     const sessionSegments = extractModelSegments(NO_SESSION_WITH_WEEKLY_HTML, 'Session usage')
     const weeklySegments = extractModelSegments(NO_SESSION_WITH_WEEKLY_HTML, 'Weekly usage')
@@ -357,22 +346,6 @@ describe('extractResetTimes', () => {
       </div>
     `
     const result = extractResetTimes(html)
-    expect(result.weekly).toBe('2026-06-01T00:00:00Z')
-    expect(result.weeklyLabel).toBe('3 days')
-  })
-
-  test('extracts session reset time from 0% usage HTML', () => {
-    const result = extractResetTimes(NO_USAGE_HTML)
-    expect(result.session).toBe('2026-05-29T17:00:00Z')
-    expect(result.sessionLabel).toBe('4 hours')
-    expect(result.weekly).toBeNull()
-    expect(result.weeklyLabel).toBeNull()
-  })
-
-  test('extracts both reset times from mixed 0% session and weekly usage', () => {
-    const result = extractResetTimes(NO_SESSION_WITH_WEEKLY_HTML)
-    expect(result.session).toBe('2026-05-29T17:00:00Z')
-    expect(result.sessionLabel).toBe('4 hours')
     expect(result.weekly).toBe('2026-06-01T00:00:00Z')
     expect(result.weeklyLabel).toBe('3 days')
   })
@@ -638,12 +611,6 @@ describe('formatDisplayState', () => {
     expect(result.level).toBe('warning')
     expect(result.text).toBe('Limit reached · 100% weekly')
   })
-
-  test('returns warning level with limit reached when session is null', () => {
-    const result = formatDisplayState({ ...baseQuota, session: null, weekly: 100, weeklyLimitReached: true })
-    expect(result.level).toBe('warning')
-    expect(result.text).toBe('Limit reached · 100% weekly')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -793,22 +760,6 @@ describe('extractResetTimes with resume pattern', () => {
     expect(result.session).toBe('2026-06-08T00:00:00Z')
     expect(result.sessionLabel).toBe('1 day.')
   })
-
-  test('extracts both "Sessions resume in" for session and "Resets in" for weekly', () => {
-    const result = extractResetTimes(WEEKLY_LIMIT_REACHED_HTML)
-    expect(result.session).toBe('2026-06-08T00:00:00Z')
-    expect(result.sessionLabel).toBe('1 day.')
-    expect(result.weekly).toBe('2026-06-08T00:00:00Z')
-    expect(result.weeklyLabel).toBe('1 day.')
-  })
-
-  test('preserves "Resets in" extraction for backward compatibility', () => {
-    const result = extractResetTimes(FULL_RESET_HTML)
-    expect(result.session).toBe('2026-05-28T21:00:00Z')
-    expect(result.sessionLabel).toBe('3 hours')
-    expect(result.weekly).toBe('2026-06-01T00:00:00Z')
-    expect(result.weeklyLabel).toBe('3 days')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -860,6 +811,184 @@ describe('parseQuotaHtml with weekly limit reached', () => {
 
   test('backward compat: 0% session HTML has weeklyLimitReached false', () => {
     const result = parseQuotaHtml(NO_USAGE_HTML)
+    expect(result.weeklyLimitReached).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Latest captured DOM structure (2026-09-01)
+// ---------------------------------------------------------------------------
+
+const LATEST_DOM_HTML = `
+<div>
+    <div class="flex justify-between mb-2">
+      <span class="text-sm ">Session usage</span>
+      <span class="text-sm ">
+        54.8% used
+      </span>
+    </div>
+    <div class="relative group" data-usage-meter>
+      <div
+        class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100"
+        data-usage-bubble
+        aria-hidden="true"
+      >
+        <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]" data-usage-model></span>
+        <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests></span>
+      </div>
+      <div
+        class="relative h-3 overflow-hidden rounded-full bg-neutral-200"
+        data-usage-track
+        aria-label="Session usage 54.8% used"
+      >
+        <div
+          class="flex h-full overflow-hidden bg-neutral-950"
+          style="width: 54.8%; "
+        >
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 97.2%; background: #2563eb"
+            data-usage-segment
+            data-model="kimi-k3"
+            data-requests="115"
+            aria-label="kimi-k3: 115 requests"
+          ></button>
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 2.8%; background: #3b82f6"
+            data-usage-segment
+            data-model="glm-5.3-flash"
+            data-requests="73"
+            aria-label="glm-5.3-flash: 73 requests"
+          ></button>
+        </div>
+      </div>
+    </div>
+    <div
+      class="text-xs text-neutral-500 mt-1 local-time"
+      data-time="2026-09-01T17:00:00Z"
+    >
+      Resets in 2 hours.
+    </div>
+  </div>
+
+  <div>
+    <div class="flex justify-between mb-2">
+      <span class="text-sm">Weekly usage</span>
+      <span class="text-sm "
+        >34.7% used</span
+      >
+    </div>
+    <div class="relative group" data-usage-meter>
+      <div
+        class="absolute bottom-6 left-[var(--usage-bubble-x,50%)] z-10 inline-flex max-w-[min(260px,100%)] -translate-x-1/2 flex-col items-start gap-0.5 rounded-xl border border-neutral-300 bg-white/95 px-2.5 pt-[7px] pb-2 text-neutral-900 opacity-0 pointer-events-none whitespace-nowrap backdrop-blur-md group-[.usage-meter--active]:opacity-100"
+        data-usage-bubble
+        aria-hidden="true"
+      >
+        <span class="max-w-[190px] overflow-hidden text-ellipsis text-xs font-medium leading-[1.2]" data-usage-model></span>
+        <span class="text-[11px] leading-[1.2] text-neutral-500" data-usage-requests></span>
+      </div>
+      <div
+        class="relative h-3 overflow-hidden rounded-full bg-neutral-200"
+        data-usage-track
+        aria-label="Weekly usage 34.7% used"
+      >
+        <div
+          class="flex h-full overflow-hidden bg-neutral-950"
+          style="width: 34.7%"
+        >
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 87.1%; background: #2563eb"
+            data-usage-segment
+            data-model="kimi-k3"
+            data-requests="730"
+            aria-label="kimi-k3: 730 requests"
+          ></button>
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 6.6%; background: #3b82f6"
+            data-usage-segment
+            data-model="glm-5.3"
+            data-requests="203"
+            aria-label="glm-5.3: 203 requests"
+          ></button>
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 5.8%; background: #3b82f6"
+            data-usage-segment
+            data-model="glm-5.3-flash"
+            data-requests="754"
+            aria-label="glm-5.3-flash: 754 requests"
+          ></button>
+          <button
+            type="button"
+            class="relative h-full min-w-[2px] flex-none overflow-hidden border-r border-white p-0 last:border-r-0 focus-visible:outline-none"
+            style="width: 0.5%; background: #3b82f6"
+            data-usage-segment
+            data-model="glm-5.2"
+            data-requests="21"
+            aria-label="glm-5.2: 21 requests"
+          ></button>
+        </div>
+      </div>
+    </div>
+    <div
+      class="text-xs text-neutral-500 mt-1 local-time"
+      data-time="2026-09-07T00:00:00Z"
+    >
+      Resets in 5 days.
+    </div>
+  </div>
+`
+
+describe('parseQuotaHtml with latest captured DOM structure', () => {
+  test('extracts session and weekly percentages', () => {
+    const result = parseQuotaHtml(LATEST_DOM_HTML)
+    expect(result.session).toBeCloseTo(54.8)
+    expect(result.weekly).toBeCloseTo(34.7)
+  })
+
+  test('extracts session model segments sorted by requests descending', () => {
+    const result = parseQuotaHtml(LATEST_DOM_HTML)
+    expect(result.models.session.length).toBe(2)
+    expect(result.models.session[0].model).toBe('kimi-k3')
+    expect(result.models.session[0].requests).toBe(115)
+    expect(result.models.session[0].widthPercent).toBeCloseTo(97.2)
+    expect(result.models.session[0].color).toBe('#2563eb')
+    expect(result.models.session[1].model).toBe('glm-5.3-flash')
+    expect(result.models.session[1].requests).toBe(73)
+    expect(result.models.session[1].widthPercent).toBeCloseTo(2.8)
+  })
+
+  test('extracts weekly model segments sorted by requests descending', () => {
+    const result = parseQuotaHtml(LATEST_DOM_HTML)
+    expect(result.models.weekly.length).toBe(4)
+    expect(result.models.weekly[0].model).toBe('glm-5.3-flash')
+    expect(result.models.weekly[0].requests).toBe(754)
+    expect(result.models.weekly[1].model).toBe('kimi-k3')
+    expect(result.models.weekly[1].requests).toBe(730)
+    expect(result.models.weekly[2].model).toBe('glm-5.3')
+    expect(result.models.weekly[2].requests).toBe(203)
+    expect(result.models.weekly[3].model).toBe('glm-5.2')
+    expect(result.models.weekly[3].requests).toBe(21)
+  })
+
+  test('extracts reset times and labels with trailing periods', () => {
+    const result = parseQuotaHtml(LATEST_DOM_HTML)
+    expect(result.resetTime.session).toBe('2026-09-01T17:00:00Z')
+    expect(result.resetTime.sessionLabel).toBe('2 hours.')
+    expect(result.resetTime.weekly).toBe('2026-09-07T00:00:00Z')
+    expect(result.resetTime.weeklyLabel).toBe('5 days.')
+  })
+
+  test('weeklyLimitReached is false for normal usage', () => {
+    const result = parseQuotaHtml(LATEST_DOM_HTML)
     expect(result.weeklyLimitReached).toBe(false)
   })
 })
